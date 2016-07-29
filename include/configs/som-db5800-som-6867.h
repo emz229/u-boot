@@ -33,4 +33,52 @@
 #define CONFIG_ENV_SECT_SIZE		0x1000
 #define CONFIG_ENV_OFFSET		0x006ef000
 
+#undef CONFIG_EXTRA_ENV_SETTINGS
+#define CONFIG_EXTRA_ENV_SETTINGS \
+	"console=ttyS0,115200n8\0" \
+	"optargs=\0" \
+	"loadaddr=0x32000000\0" \
+	"bootfile=fitImage-overlay-ima-initramfs-image-orionlx-plus.bin\0" \
+	"altbootfile=alt-fitImage-overlay-ima-initramfs-image-orionlx-plus.bin\0" \
+	"loadimage=setenv lowerdev /dev/disk/by-path/pci-0000:00:13.0-ata-1-part2; " \
+		"ext4load scsi 0:1 ${loadaddr} ${bootfile}\0" \
+	"altloadimage=setenv lowerdev /dev/disk/by-path/pci-0000:00:13.0-ata-1-part3; " \
+		"ext4load scsi 0:1 ${loadaddr} ${altbootfile}\0" \
+	"scsiargs=setenv bootargs console=${console} " \
+		"lowerdev=${lowerdev} upperdev=/dev/disk/by-path/pci-0000:00:13.0-ata-1-part5 " \
+		"video=vesafb vga=0x318 ima_tcb ima_appraise=enforce " \
+		"${optargs}\0" \
+	"scsiboot=echo Booting from scsi ...; " \
+		"run scsiargs; " \
+		"bootm ${loadaddr}\0"
+
+#undef CONFIG_BOOTCOMMAND
+#define CONFIG_BOOTCOMMAND \
+	"usb start;" \
+	"if ext4load usb 0:1 $loadaddr fitImage-overlay-ima-initramfs-image-orionlx-plus.bin; then " \
+		"setenv bootargs lowerdev=/dev/disk/by-label/usb.rootfs.ro " \
+		"upperdev=/dev/disk/by-label/usb.rootfs.rw " \
+		"video=vesafb vga=0x318 ima_tcb ima_appraise=enforce " \
+		"console=ttyS0,115200n8;" \
+		"bootm $loadaddr;" \
+	"else;" \
+		"if test -e scsi 0:1 bootalt.txt; then " \
+			"if run altloadimage; then " \
+				"run scsiboot;" \
+			"else;" \
+				"if run loadimage; then " \
+					"run scsiboot;" \
+				"fi;" \
+			"fi;" \
+		"else;" \
+			"if run loadimage; then " \
+				"run scsiboot;" \
+			"else;" \
+				"if run altloadimage; then " \
+					"run scsiboot;" \
+				"fi;" \
+			"fi;" \
+		"fi;" \
+	"fi;"
+
 #endif	/* __CONFIG_H */
