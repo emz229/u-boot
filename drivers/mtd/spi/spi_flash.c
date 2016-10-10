@@ -874,6 +874,62 @@ int stm_sr_protect(struct spi_flash *flash, enum srp_method method)
 }
 #endif
 
+#if defined(CONFIG_SPI_FLASH_SPANSION) || defined(CONFIG_SPI_FLASH_WINBOND)
+/*
+ * Set status register protection method for parts with two protection bits
+ *
+ * Returns negative on errors, 0 on success.
+ */
+int winbond_sr_protect(struct spi_flash *flash, enum srp_method method)
+{
+	u8 status_old[2], status_new[2];
+	u8 mask[2] = {SR_SRP0, SR_SRP1};
+	u8 val[2];
+	u8 cmd;
+	int ret;
+
+	ret = read_sr(flash, &status_old[0]);
+	if (ret < 0)
+		return ret;
+
+	ret = read_cr(flash, &status_old[1]);
+	if (ret < 0)
+		return ret;
+
+	switch(method) {
+	case SRP_SOFTWARE:
+		val[0] = 0;
+		val[1] = 0;
+		break;
+	case SRP_HARDWARE:
+		val[0] = SR_SRP0;
+		val[1] = 0;
+		break;
+	case SRP_POWER:
+		val[0] = 0;
+		val[1] = SR_SRP1;
+		break;
+	case SRP_OTP:
+		val[0] = SR_SRP0;
+		val[1] = SR_SRP1;
+		break;
+	default:
+		return -EOPNOTSUPP;
+	}
+
+	status_new[0] = (status_old[0] & ~mask[0]) | val[0];
+	status_new[1] = (status_old[1] & ~mask[1]) | val[1];
+
+	cmd = CMD_WRITE_STATUS;
+	ret = spi_flash_write_common(flash, &cmd, 1, &status_new, 2);
+	if (ret) {
+		debug("SF: fail to write status register\n");
+		return ret;
+	}
+
+	return 0;
+}
+#endif
 
 #ifdef CONFIG_SPI_FLASH_MACRONIX
 static int macronix_quad_enable(struct spi_flash *flash)
@@ -1169,6 +1225,7 @@ int spi_flash_scan(struct spi_flash *flash)
 		flash->flash_lock = stm_lock;
 		flash->flash_unlock = stm_unlock;
 		flash->flash_is_locked = stm_is_locked;
+		flash->sr_protect = winbond_sr_protect;
 		break;
 #endif
 	default:
