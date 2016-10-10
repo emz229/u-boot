@@ -837,6 +837,40 @@ int stm_unlock(struct spi_flash *flash, u32 ofs, size_t len)
 
 	return 0;
 }
+
+/*
+ * Set status register protection method for parts with one protection bit
+ *
+ * Returns negative on errors, 0 on success.
+ */
+int stm_sr_protect(struct spi_flash *flash, enum srp_method method)
+{
+	uint8_t status_old, status_new;
+	u8 mask = SR_SRP0;
+	u8 val;
+	int ret;
+
+	ret = read_sr(flash, &status_old);
+	if (ret < 0)
+		return ret;
+
+	switch(method) {
+	case SRP_SOFTWARE:
+		val = 0;
+		break;
+	case SRP_HARDWARE:
+		val = SR_SRP0;
+		break;
+	default:
+		return -EOPNOTSUPP;
+	}
+
+	status_new = (status_old & ~mask) | val;
+
+	write_sr(flash, status_new);
+
+	return 0;
+}
 #endif
 
 
@@ -1125,6 +1159,7 @@ int spi_flash_scan(struct spi_flash *flash)
 		flash->flash_lock = stm_lock;
 		flash->flash_unlock = stm_unlock;
 		flash->flash_is_locked = stm_is_locked;
+		flash->sr_protect = stm_sr_protect;
 #endif
 		break;
 	default:
