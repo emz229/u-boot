@@ -664,7 +664,8 @@ int sst_write_bp(struct spi_flash *flash, u32 offset, size_t len,
 }
 #endif
 
-#if defined(CONFIG_SPI_FLASH_STMICRO) || defined(CONFIG_SPI_FLASH_SST)
+#if defined(CONFIG_SPI_FLASH_STMICRO) || defined(CONFIG_SPI_FLASH_SST) || \
+    defined(CONFIG_SPI_FLASH_SPANSION) || defined(CONFIG_SPI_FLASH_WINBOND)
 static void stm_get_locked_range(struct spi_flash *flash, u8 sr, loff_t *ofs,
 				 u64 *len)
 {
@@ -1160,8 +1161,16 @@ int spi_flash_scan(struct spi_flash *flash)
 		flash->flash_unlock = stm_unlock;
 		flash->flash_is_locked = stm_is_locked;
 		flash->sr_protect = stm_sr_protect;
-#endif
 		break;
+#endif
+#if defined(CONFIG_SPI_FLASH_SPANSION) || defined(CONFIG_SPI_FLASH_WINBOND)
+	case SPI_FLASH_CFI_MFR_SPANSION:
+	case SPI_FLASH_CFI_MFR_WINBOND:
+		flash->flash_lock = stm_lock;
+		flash->flash_unlock = stm_unlock;
+		flash->flash_is_locked = stm_is_locked;
+		break;
+#endif
 	default:
 		debug("SF: Lock ops not supported for %02x flash\n", idcode[0]);
 	}
