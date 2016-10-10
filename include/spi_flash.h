@@ -26,6 +26,13 @@
 # define CONFIG_SF_DEFAULT_BUS		0
 #endif
 
+enum srp_method {
+	SRP_SOFTWARE,
+	SRP_HARDWARE,
+	SRP_POWER,
+	SRP_OTP,
+};
+
 struct spi_slave;
 
 /**
@@ -89,6 +96,7 @@ struct spi_flash {
 	int (*flash_lock)(struct spi_flash *flash, u32 ofs, size_t len);
 	int (*flash_unlock)(struct spi_flash *flash, u32 ofs, size_t len);
 	int (*flash_is_locked)(struct spi_flash *flash, u32 ofs, size_t len);
+	int (*sr_protect)(struct spi_flash *flash, enum srp_method method);
 #ifndef CONFIG_DM_SPI_FLASH
 	/*
 	 * These are not strictly needed for driver model, but keep them here
@@ -237,6 +245,14 @@ static inline int spi_flash_protect(struct spi_flash *flash, u32 ofs, u32 len,
 		return flash->flash_lock(flash, ofs, len);
 	else
 		return flash->flash_unlock(flash, ofs, len);
+}
+
+static inline int spi_flash_sr_protect(struct spi_flash *flash, enum srp_method method)
+{
+	if (!flash->sr_protect)
+		return -EOPNOTSUPP;
+
+	return flash->sr_protect(flash, method);
 }
 
 #endif /* _SPI_FLASH_H_ */
