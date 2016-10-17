@@ -60,10 +60,30 @@
 		"${optargs}\0" \
 	"scsiboot=echo Booting from scsi ...; " \
 		"run scsiargs; " \
-		"bootm ${loadaddr}\0"
+		"bootm ${loadaddr}\0" \
+	"tpm_init=" \
+		"if tpm init; then " \
+			"echo tpm init passed;" \
+		"else;" \
+			"echo tpm init failed;" \
+			"reset;" \
+		"fi;" \
+		"if tpm startup TPM_ST_CLEAR; then " \
+			"echo tpm startup passed;" \
+		"else;" \
+			"echo tpm startup failed;" \
+			"reset;" \
+		"fi;" \
+		"if tpm continue_self_test; then " \
+			"echo continue_self_test passed;" \
+		"else;" \
+			"echo continue_self_test failed;" \
+			"reset;" \
+		"fi\0"
 
 #undef CONFIG_BOOTCOMMAND
 #define CONFIG_BOOTCOMMAND \
+	"run tpm_init;" \
 	"usb start;" \
 	"if ext4load usb 0:1 $loadaddr fitImage-overlay-ima-initramfs-image-orionlx-plus.bin; then " \
 		"setenv bootargs lowerdev=/dev/disk/by-label/usb.rootfs.ro " \
