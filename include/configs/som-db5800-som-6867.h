@@ -97,6 +97,18 @@
 		"${scsiconfigargs} " \
 		"fs_sha1sum=${fs_sha1sum} fs_sha256sum=${fs_sha256sum} fs_len=${fs_len} ${optargs};" \
 		"bootm ${loadaddr}\0" \
+	"extendfspcr=" \
+		"if test -n ${fs_sha1sum}; then " \
+			"if tpm extend 2 ${fs_sha1sum}; then " \
+				"echo tpm extend 2 passed;" \
+			"else;" \
+				"echo tpm extend 2 failed;" \
+				"reset;" \
+			"fi;" \
+		"else;" \
+			"echo no fs_sha1sum found;" \
+			"reset;" \
+		"fi\0" \
 	"extendfitpcr=hash sha1 ${fileaddr} ${filesize} fitsum; " \
 		"if test -n ${fitsum}; then " \
 			"if tpm extend 1 ${fitsum}; then " \
@@ -187,6 +199,7 @@
 	"setenv usefsfile ${fsfile};" \
 	"if run loadimage; then " \
 		"run extendfitpcr;" \
+		"run extendfspcr;" \
 		"setenv bootargs lowerdev=/dev/disk/by-label/usb.rootfs.ro " \
 		"upperdev=/dev/disk/by-label/usb.rootfs.rw " \
 		"video=vesafb vga=0x318 ima_tcb ima_appraise=enforce " \
@@ -224,6 +237,7 @@
 		"if run loadimage; then " \
 			"if run checkminversion; then " \
 				"run extendfitpcr;" \
+				"run extendfspcr;" \
 				"run scsiboot;" \
 			"fi;" \
 		"fi;" \
@@ -232,6 +246,7 @@
 	"if run loadimage; then " \
 		"if run checkminversion; then " \
 			"run extendfitpcr;" \
+			"run extendfspcr;" \
 			"run scsiboot;" \
 		"fi;" \
 	"fi;" \
@@ -239,6 +254,7 @@
 	"if run loadimage; then " \
 		"if run checkminversion; then " \
 			"run extendfitpcr;" \
+			"run extendfspcr;" \
 			"run scsiboot;" \
 		"fi;" \
 	"fi;" \
