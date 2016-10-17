@@ -61,6 +61,25 @@
 	"scsiboot=echo Booting from scsi ...; " \
 		"run scsiargs; " \
 		"bootm ${loadaddr}\0" \
+	"extendrompcr=" \
+		"if sf read $loadaddr 0 800000; then " \
+			"echo sf read passed;" \
+		"else;" \
+			"echo sf read failed;" \
+			"reset;" \
+		"fi;" \
+		"if hash sha1 $loadaddr 800000 spisum; then " \
+			"echo spisum passed;" \
+		"else;" \
+			"echo spisum failed;" \
+			"reset;" \
+		"fi;" \
+		"if tpm extend 0 $spisum; then " \
+			"echo tpm extend 0 passed;" \
+		"else;" \
+			"echo tpm extend 0 failed;" \
+			"reset;" \
+		"fi\0" \
 	"tpm_init=" \
 		"if tpm init; then " \
 			"echo tpm init passed;" \
@@ -103,6 +122,7 @@
 		"reset;" \
 	"fi;" \
 	ORIONLX_PROTECT_FLASH \
+	"run extendrompcr;" \
 	"usb start;" \
 	"if ext4load usb 0:1 $loadaddr fitImage-overlay-ima-initramfs-image-orionlx-plus.bin; then " \
 		"setenv bootargs lowerdev=/dev/disk/by-label/usb.rootfs.ro " \
