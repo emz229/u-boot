@@ -45,21 +45,57 @@
 
 #undef CONFIG_EXTRA_ENV_SETTINGS
 #define CONFIG_EXTRA_ENV_SETTINGS \
-	"console=ttyS0,115200n8\0" \
 	"optargs=\0" \
 	"loadaddr=0x32000000\0" \
 	"bootfile=fitImage-overlay-ima-initramfs-image-orionlx-plus.bin\0" \
+	"fsfile=fitImage-fs-orionlx-plus.bin\0" \
 	"altbootfile=alt-fitImage-overlay-ima-initramfs-image-orionlx-plus.bin\0" \
-	"loadimage=setenv lowerdev /dev/disk/by-path/pci-0000:00:13.0-ata-1-part2; " \
-		"ext4load scsi 0:1 ${loadaddr} ${bootfile}\0" \
-	"altloadimage=setenv lowerdev /dev/disk/by-path/pci-0000:00:13.0-ata-1-part3; " \
-		"ext4load scsi 0:1 ${loadaddr} ${altbootfile}\0" \
-	"scsiargs=setenv bootargs console=${console} " \
-		"lowerdev=${lowerdev} upperdev=/dev/disk/by-path/pci-0000:00:13.0-ata-1-part5 " \
-		"video=vesafb vga=0x318 ima_tcb ima_appraise=enforce " \
-		"${optargs}\0" \
+	"altfsfile=alt-fitImage-fs-orionlx-plus.bin\0" \
+	"usemain=setenv bootmediatype scsi;" \
+		"setenv bootpart part2;" \
+		"setenv usebootfile ${bootfile};" \
+		"setenv usefsfile ${fsfile};\0" \
+	"usealt=setenv bootmediatype scsi;" \
+		"setenv bootpart part3;" \
+		"setenv usebootfile ${altbootfile};" \
+		"setenv usefsfile ${altfsfile};\0" \
+	"loadimage=" \
+		"if ext4load ${bootmediatype} 0:1 ${loadaddr} ${usefsfile}; then " \
+			"echo loaded ${usefsfile};" \
+			"if source ${loadaddr}:script; then " \
+				"echo sourced ${usefsfile};" \
+				"if ext4load ${bootmediatype} 0:1 ${loadaddr} ${usebootfile}; then " \
+					"echo loaded ${usebootfile};" \
+					"if source ${loadaddr}:script; then " \
+						"echo sourced ${usebootfile};" \
+						"if test \"${fs_version}\" = \"${kernel_version}\"; then " \
+							"echo filesystem version matches kernel version.;" \
+							"true;" \
+						"else;" \
+							"echo filesystem version doesnt match kernel version!;" \
+							"false;" \
+						"fi;" \
+					"else;" \
+						"echo sourcing ${usebootfile} failed;" \
+						"false;" \
+					"fi;" \
+				"else;" \
+					"echo loading ${usebootfile} failed;" \
+					"false;" \
+				"fi;" \
+			"else;" \
+				"echo sourcing ${usefsfile} failed;" \
+				"false;" \
+			"fi;" \
+		"else;" \
+			"echo loading ${usefsfile} failed;" \
+			"false;" \
+		"fi;\0" \
 	"scsiboot=echo Booting from scsi ...; " \
-		"run scsiargs; " \
+		"setenv bootargs lowerdev=${scsibootdisk}-${bootpart} " \
+		"upperdev=${scsibootdisk}-part5 " \
+		"${scsiconfigargs} " \
+		"fs_sha1sum=${fs_sha1sum} fs_sha256sum=${fs_sha256sum} fs_len=${fs_len} ${optargs};" \
 		"bootm ${loadaddr}\0" \
 	"extendrompcr=" \
 		"if sf read $loadaddr 0 800000; then " \
@@ -100,6 +136,20 @@
 			"reset;" \
 		"fi\0"
 
+#define ORIONLX_USB_BOOT \
+	"usb start;" \
+	"setenv bootmediatype usb;" \
+	"setenv usebootfile ${bootfile};" \
+	"setenv usefsfile ${fsfile};" \
+	"if run loadimage; then " \
+		"setenv bootargs lowerdev=/dev/disk/by-label/usb.rootfs.ro " \
+		"upperdev=/dev/disk/by-label/usb.rootfs.rw " \
+		"video=vesafb vga=0x318 ima_tcb ima_appraise=enforce " \
+		"console=ttyS0,115200n8 " \
+		"${optargs};" \
+		"bootm $loadaddr;" \
+	"fi;"
+
 #define ORIONLX_PROTECT_FLASH \
 	"if sf protect lock 0 800000; then " \
 		"echo sf protect lock passed;" \
@@ -123,31 +173,21 @@
 	"fi;" \
 	ORIONLX_PROTECT_FLASH \
 	"run extendrompcr;" \
-	"usb start;" \
-	"if ext4load usb 0:1 $loadaddr fitImage-overlay-ima-initramfs-image-orionlx-plus.bin; then " \
-		"setenv bootargs lowerdev=/dev/disk/by-label/usb.rootfs.ro " \
-		"upperdev=/dev/disk/by-label/usb.rootfs.rw " \
-		"video=vesafb vga=0x318 ima_tcb ima_appraise=enforce " \
-		"console=ttyS0,115200n8;" \
-		"bootm $loadaddr;" \
-	"else;" \
-		"if test -e scsi 0:1 bootalt.txt; then " \
-			"if run altloadimage; then " \
-				"run scsiboot;" \
-			"else;" \
-				"if run loadimage; then " \
-					"run scsiboot;" \
-				"fi;" \
-			"fi;" \
-		"else;" \
-			"if run loadimage; then " \
-				"run scsiboot;" \
-			"else;" \
-				"if run altloadimage; then " \
-					"run scsiboot;" \
-				"fi;" \
-			"fi;" \
+	ORIONLX_USB_BOOT \
+	"if test -e scsi 0:1 bootalt.txt; then " \
+		"run usealt;" \
+		"if run loadimage; then " \
+			"run scsiboot;" \
 		"fi;" \
-	"fi;"
+	"fi;" \
+	"run usemain;" \
+	"if run loadimage; then " \
+		"run scsiboot;" \
+	"fi;" \
+	"run usealt;" \
+	"if run loadimage; then " \
+		"run scsiboot;" \
+	"fi;" \
+	"reset;"
 
 #endif	/* __CONFIG_H */
