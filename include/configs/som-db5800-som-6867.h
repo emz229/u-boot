@@ -97,6 +97,38 @@
 		"${scsiconfigargs} " \
 		"fs_sha1sum=${fs_sha1sum} fs_sha256sum=${fs_sha256sum} fs_len=${fs_len} ${optargs};" \
 		"bootm ${loadaddr}\0" \
+	"checkminversion=" \
+		"if tpm nv_read d 0x1008 tpm_min_version; then " \
+			"if test \"${tpm_min_version}\" -le \"${kernel_version}\"; then " \
+				"if test \"${tpm_min_version}\" -lt \"${min_version}\"; then " \
+					"if tpm tsc_physical_presence 0x8; then " \
+						"if tpm nv_write d 0x1008 ${min_version}; then " \
+							"echo set tpm_min_version to ${min_version};" \
+						"else;" \
+							"echo failed to set tpm_min_version to ${min_version};" \
+						"fi;" \
+					"else;" \
+						"echo failed to set physical presence;" \
+					"fi;" \
+				"fi;" \
+				"if tpm tsc_physical_presence 0x10; then " \
+					"if tpm tsc_physical_presence 0x4; then " \
+					"else;" \
+						"echo failed to lock physical presence;" \
+						"false;" \
+					"fi;" \
+				"else;" \
+					"echo failed to clear physical presence;" \
+					"false;" \
+				"fi;" \
+			"else;" \
+				"echo kernel version of ${kernel_version} is lower than requirement of ${tpm_min_version};" \
+				"false;" \
+			"fi;" \
+		"else;" \
+			"echo error reading tpm_min_version;" \
+			"false;" \
+		"fi;\0" \
 	"extendrompcr=" \
 		"if sf read $loadaddr 0 800000; then " \
 			"echo sf read passed;" \
@@ -177,16 +209,22 @@
 	"if test -e scsi 0:1 bootalt.txt; then " \
 		"run usealt;" \
 		"if run loadimage; then " \
-			"run scsiboot;" \
+			"if run checkminversion; then " \
+				"run scsiboot;" \
+			"fi;" \
 		"fi;" \
 	"fi;" \
 	"run usemain;" \
 	"if run loadimage; then " \
-		"run scsiboot;" \
+		"if run checkminversion; then " \
+			"run scsiboot;" \
+		"fi;" \
 	"fi;" \
 	"run usealt;" \
 	"if run loadimage; then " \
-		"run scsiboot;" \
+		"if run checkminversion; then " \
+			"run scsiboot;" \
+		"fi;" \
 	"fi;" \
 	"reset;"
 
