@@ -294,6 +294,11 @@
 		fsp,serial-debug-port-type = <1>;
 	};
 
+	tpm {
+		reg = <0xfed40000 0x5000>;
+		compatible = "atmel,at97sc3204";
+	};
+
 	microcode {
 		update@0 {
 #include "microcode/m0130673325.dtsi"
