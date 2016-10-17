@@ -81,9 +81,28 @@
 			"reset;" \
 		"fi\0"
 
+#define ORIONLX_PROTECT_FLASH \
+	"if sf protect lock 0 800000; then " \
+		"echo sf protect lock passed;" \
+	"else;" \
+		"echo sf protect lock failed;" \
+	"fi;" \
+	"if sf sr-protect hardware; then " \
+		"echo sf sr-protect passed;" \
+	"else;" \
+		"echo sf sr-protect failed;" \
+	"fi;"
+
 #undef CONFIG_BOOTCOMMAND
 #define CONFIG_BOOTCOMMAND \
 	"run tpm_init;" \
+	"if sf probe; then " \
+		"echo sf probe passed;" \
+	"else;" \
+		"echo sf probe failed;" \
+		"reset;" \
+	"fi;" \
+	ORIONLX_PROTECT_FLASH \
 	"usb start;" \
 	"if ext4load usb 0:1 $loadaddr fitImage-overlay-ima-initramfs-image-orionlx-plus.bin; then " \
 		"setenv bootargs lowerdev=/dev/disk/by-label/usb.rootfs.ro " \
