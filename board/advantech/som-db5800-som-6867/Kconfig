@@ -25,4 +25,9 @@ config BOARD_SPECIFIC_OPTIONS # dummy
 config PCIE_ECAM_BASE
 	default 0xe0000000
 
+config ORIONLX_PLUS_USB_BOOT
+	bool "Enable booting from USB"
+	help
+	   Enable booting from USB
+
 endif

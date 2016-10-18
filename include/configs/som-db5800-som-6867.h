@@ -192,7 +192,8 @@
 			"reset;" \
 		"fi\0"
 
-#define ORIONLX_USB_BOOT \
+#ifdef CONFIG_ORIONLX_PLUS_USB_BOOT
+#define ORIONLX_PLUS_USB_BOOT \
 	"usb start;" \
 	"setenv bootmediatype usb;" \
 	"setenv usebootfile ${bootfile};" \
@@ -235,6 +236,9 @@
 			"bootm $loadaddr;" \
 		"fi;" \
 	"fi;"
+#else
+#define ORIONLX_PLUS_USB_BOOT ""
+#endif
 
 #define ORIONLX_PROTECT_FLASH \
 	"if sf protect lock 0 800000; then " \
@@ -259,7 +263,7 @@
 	"fi;" \
 	ORIONLX_PROTECT_FLASH \
 	"run extendrompcr;" \
-	ORIONLX_USB_BOOT \
+	ORIONLX_PLUS_USB_BOOT \
 	"if test -e scsi 0:1 bootalt.txt; then " \
 		"run usealt;" \
 		"if run loadimage; then " \
