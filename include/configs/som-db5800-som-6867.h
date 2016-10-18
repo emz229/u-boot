@@ -198,14 +198,42 @@
 	"setenv usebootfile ${bootfile};" \
 	"setenv usefsfile ${fsfile};" \
 	"if run loadimage; then " \
-		"run extendfitpcr;" \
-		"run extendfspcr;" \
 		"setenv bootargs lowerdev=/dev/disk/by-label/usb.rootfs.ro " \
 		"upperdev=/dev/disk/by-label/usb.rootfs.rw " \
-		"video=vesafb vga=0x318 ima_tcb ima_appraise=enforce " \
-		"console=ttyS0,115200n8 " \
+		"${scsiconfigargs} " \
 		"${optargs};" \
-		"bootm $loadaddr;" \
+		"if tpm nv_read d 0x1008 tpm_min_version; then " \
+			"if run checkminversion; then " \
+				"run extendfitpcr;" \
+				"run extendfspcr;" \
+				"bootm $loadaddr;" \
+			"fi;" \
+		"else;" \
+			"echo failed to read tpm nv index 0x1008, doing nv setup;" \
+			"if tpm tsc_physical_presence 0x8; then " \
+				"echo set physical presence;" \
+				"if tpm nv_define_space 0xffffffff 0 0; then " \
+					"echo defined nv index 0xffffffff;" \
+				"else;" \
+					"echo failed to define nv index 0xffffffff;" \
+				"fi;" \
+				"if tpm nv_define d 0x1008 1; then " \
+					"echo defined nv index 0x1008;" \
+					"if tpm nv_write d 0x1008 0; then " \
+						"echo set nv index 0x1008 to 0;" \
+					"else;" \
+						"echo failed to set nv index 0x1008 to 0;" \
+					"fi;" \
+				"else;" \
+					"echo failed to define nv index 0x1008;" \
+				"fi;" \
+			"else;" \
+				"echo failed to set physical presence;" \
+			"fi;" \
+			"run extendfitpcr;" \
+			"run extendfspcr;" \
+			"bootm $loadaddr;" \
+		"fi;" \
 	"fi;"
 
 #define ORIONLX_PROTECT_FLASH \
