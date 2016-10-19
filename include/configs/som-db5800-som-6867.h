@@ -45,6 +45,7 @@
 
 #undef CONFIG_EXTRA_ENV_SETTINGS
 #define CONFIG_EXTRA_ENV_SETTINGS \
+	CONFIG_STD_DEVICES_SETTINGS \
 	"optargs=\0" \
 	"loadaddr=0x32000000\0" \
 	"bootfile=fitImage-overlay-ima-initramfs-image-orionlx-plus.bin\0" \
