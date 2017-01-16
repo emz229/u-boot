@@ -94,7 +94,7 @@
 		"fi;\0" \
 	"scsiboot=echo Booting from scsi ...; " \
 		"setenv bootargs lowerdev=${scsibootdisk}-${bootpart} " \
-		"upperdev=${scsibootdisk}-part5 " \
+		"upperdev=${scsibootdisk}-part4 " \
 		"${scsiconfigargs} " \
 		"fs_sha1sum=${fs_sha1sum} fs_sha256sum=${fs_sha256sum} fs_len=${fs_len} ${optargs};" \
 		"bootm ${loadaddr}\0" \
