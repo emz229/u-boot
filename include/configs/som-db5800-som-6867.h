@@ -95,6 +95,7 @@
 	"scsiboot=echo Booting from scsi ...; " \
 		"setenv bootargs lowerdev=${scsibootdisk}-${bootpart} " \
 		"upperdev=${scsibootdisk}-part4 " \
+		"u-boot-version=\\\\\"\"${ver}\"\\\\\" " \
 		"${scsiconfigargs} " \
 		"fs_sha1sum=${fs_sha1sum} fs_sha256sum=${fs_sha256sum} fs_len=${fs_len} ${optargs};" \
 		"bootm ${loadaddr}\0" \
@@ -202,6 +203,7 @@
 	"if run loadimage; then " \
 		"setenv bootargs lowerdev=/dev/disk/by-label/usb.rootfs.ro " \
 		"upperdev=/dev/disk/by-label/usb.rootfs.rw " \
+		"u-boot-version=\\\\\"\"${ver}\"\\\\\" " \
 		"${scsiconfigargs} " \
 		"${optargs};" \
 		"if tpm nv_read d 0x1008 tpm_min_version; then " \
