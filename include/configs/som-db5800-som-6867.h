@@ -49,9 +49,9 @@
 	"optargs=\0" \
 	"loadaddr=0x32000000\0" \
 	"bootfile=fitImage-overlay-ima-initramfs-image-orionlx-plus.bin\0" \
-	"fsfile=fitImage-fs-orionlx-plus.bin\0" \
+	"fsfile=orion-graphical-image-orionlx-plus.fsfit\0" \
 	"altbootfile=alt-fitImage-overlay-ima-initramfs-image-orionlx-plus.bin\0" \
-	"altfsfile=alt-fitImage-fs-orionlx-plus.bin\0" \
+	"altfsfile=alt-orion-graphical-image-orionlx-plus.fsfit\0" \
 	"usemain=setenv bootmediatype scsi;" \
 		"setenv bootpart part2;" \
 		"setenv usebootfile ${bootfile};" \
