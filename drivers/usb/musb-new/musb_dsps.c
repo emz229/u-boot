@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * Texas Instruments DSPS platforms "glue layer"
  *
@@ -6,8 +7,6 @@
  * Based on the am35x "glue layer" code.
  *
  * This file is part of the Inventra Controller Driver for Linux.
- *
- * SPDX-License-Identifier:	GPL-2.0
  *
  * musb_dsps.c will be a common file for all the TI DSPS platforms
  * such as dm64x, dm36x, dm35x, da8x, am35x and ti81x.
@@ -452,7 +451,7 @@ static int dsps_musb_init(struct musb *musb)
 
 	/* Start the on-chip PHY and its PLL. */
 	if (data->set_phy_power)
-		data->set_phy_power(1);
+		data->set_phy_power(data->dev, 1);
 
 	musb->isr = dsps_interrupt;
 
@@ -493,7 +492,7 @@ static int dsps_musb_exit(struct musb *musb)
 
 	/* Shutdown the on-chip PHY and its PLL. */
 	if (data->set_phy_power)
-		data->set_phy_power(0);
+		data->set_phy_power(data->dev, 0);
 
 #ifndef __UBOOT__
 	/* NOP driver needs change if supporting dual instance */
@@ -693,7 +692,7 @@ static int dsps_suspend(struct device *dev)
 
 	/* Shutdown the on-chip PHY and its PLL. */
 	if (data->set_phy_power)
-		data->set_phy_power(0);
+		data->set_phy_power(data->dev, 0);
 
 	return 0;
 }
@@ -705,7 +704,7 @@ static int dsps_resume(struct device *dev)
 
 	/* Start the on-chip PHY and its PLL. */
 	if (data->set_phy_power)
-		data->set_phy_power(1);
+		data->set_phy_power(data->dev, 1);
 
 	return 0;
 }

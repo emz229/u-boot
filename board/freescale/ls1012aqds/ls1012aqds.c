@@ -1,7 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  * Copyright 2016 Freescale Semiconductor, Inc.
- *
- * SPDX-License-Identifier:	GPL-2.0+
  */
 
 #include <common.h>
@@ -10,7 +9,11 @@
 #include <asm/io.h>
 #include <asm/arch/clock.h>
 #include <asm/arch/fsl_serdes.h>
+#ifdef CONFIG_FSL_LS_PPA
+#include <asm/arch/ppa.h>
+#endif
 #include <asm/arch/fdt.h>
+#include <asm/arch/mmu.h>
 #include <asm/arch/soc.h>
 #include <ahci.h>
 #include <hwconfig.h>
@@ -21,9 +24,9 @@
 #include <fsl_mmdc.h>
 #include <spl.h>
 #include <netdev.h>
-
 #include "../common/qixis.h"
 #include "ls1012aqds_qixis.h"
+#include "ls1012aqds_pfe.h"
 
 DECLARE_GLOBAL_DATA_PTR;
 
@@ -73,6 +76,10 @@ int dram_init(void)
 	mmdc_init(&mparam);
 
 	gd->ram_size = CONFIG_SYS_SDRAM_SIZE;
+#if !defined(CONFIG_SPL) || defined(CONFIG_SPL_BUILD)
+	/* This will break-before-make MMU for DDR */
+	update_early_mmu_table();
+#endif
 
 	return 0;
 }
@@ -98,8 +105,8 @@ int misc_init_r(void)
 
 int board_init(void)
 {
-	struct ccsr_cci400 *cci = (struct ccsr_cci400 *)
-				   CONFIG_SYS_CCI400_ADDR;
+	struct ccsr_cci400 *cci = (struct ccsr_cci400 *)(CONFIG_SYS_IMMR +
+				   CONFIG_SYS_CCI400_OFFSET);
 
 	/* Set CCI-400 control override register to enable barrier
 	 * transaction */
@@ -113,12 +120,128 @@ int board_init(void)
 #ifdef CONFIG_ENV_IS_NOWHERE
 	gd->env_addr = (ulong)&default_environment[0];
 #endif
+
+#ifdef CONFIG_FSL_LS_PPA
+	ppa_init();
+#endif
 	return 0;
 }
 
-int board_eth_init(bd_t *bis)
+int esdhc_status_fixup(void *blob, const char *compat)
 {
-	return pci_eth_init(bis);
+	char esdhc0_path[] = "/soc/esdhc@1560000";
+	char esdhc1_path[] = "/soc/esdhc@1580000";
+	u8 card_id;
+
+	do_fixup_by_path(blob, esdhc0_path, "status", "okay",
+			 sizeof("okay"), 1);
+
+	/*
+	 * The Presence Detect 2 register detects the installation
+	 * of cards in various PCI Express or SGMII slots.
+	 *
+	 * STAT_PRS2[7:5]: Specifies the type of card installed in the
+	 * SDHC2 Adapter slot. 0b111 indicates no adapter is installed.
+	 */
+	card_id = (QIXIS_READ(present2) & 0xe0) >> 5;
+
+	/* If no adapter is installed in SDHC2, disable SDHC2 */
+	if (card_id == 0x7)
+		do_fixup_by_path(blob, esdhc1_path, "status", "disabled",
+				 sizeof("disabled"), 1);
+	else
+		do_fixup_by_path(blob, esdhc1_path, "status", "okay",
+				 sizeof("okay"), 1);
+	return 0;
+}
+
+static int pfe_set_properties(void *set_blob, struct pfe_prop_val prop_val,
+			      char *enet_path, char *mdio_path)
+{
+	do_fixup_by_path(set_blob, enet_path, "fsl,gemac-bus-id",
+			 &prop_val.busid, PFE_PROP_LEN, 1);
+	do_fixup_by_path(set_blob, enet_path, "fsl,gemac-phy-id",
+			 &prop_val.phyid, PFE_PROP_LEN, 1);
+	do_fixup_by_path(set_blob, enet_path, "fsl,mdio-mux-val",
+			 &prop_val.mux_val, PFE_PROP_LEN, 1);
+	do_fixup_by_path(set_blob, enet_path, "phy-mode",
+			 prop_val.phy_mode, strlen(prop_val.phy_mode) + 1, 1);
+	do_fixup_by_path(set_blob, mdio_path, "fsl,mdio-phy-mask",
+			 &prop_val.phy_mask, PFE_PROP_LEN, 1);
+	return 0;
+}
+
+static void fdt_fsl_fixup_of_pfe(void *blob)
+{
+	int i = 0;
+	struct pfe_prop_val prop_val;
+	void *l_blob = blob;
+
+	struct ccsr_gur __iomem *gur = (void *)CONFIG_SYS_FSL_GUTS_ADDR;
+	unsigned int srds_s1 = in_be32(&gur->rcwsr[4]) &
+		FSL_CHASSIS2_RCWSR4_SRDS1_PRTCL_MASK;
+	srds_s1 >>= FSL_CHASSIS2_RCWSR4_SRDS1_PRTCL_SHIFT;
+
+	for (i = 0; i < NUM_ETH_NODE; i++) {
+		switch (srds_s1) {
+		case SERDES_1_G_PROTOCOL:
+			if (i == 0) {
+				prop_val.busid = cpu_to_fdt32(
+						ETH_1_1G_BUS_ID);
+				prop_val.phyid = cpu_to_fdt32(
+						ETH_1_1G_PHY_ID);
+				prop_val.mux_val = cpu_to_fdt32(
+						ETH_1_1G_MDIO_MUX);
+				prop_val.phy_mask = cpu_to_fdt32(
+						ETH_1G_MDIO_PHY_MASK);
+				prop_val.phy_mode = "sgmii";
+				pfe_set_properties(l_blob, prop_val, ETH_1_PATH,
+						   ETH_1_MDIO);
+			} else {
+				prop_val.busid = cpu_to_fdt32(
+						ETH_2_1G_BUS_ID);
+				prop_val.phyid = cpu_to_fdt32(
+						ETH_2_1G_PHY_ID);
+				prop_val.mux_val = cpu_to_fdt32(
+						ETH_2_1G_MDIO_MUX);
+				prop_val.phy_mask = cpu_to_fdt32(
+						ETH_1G_MDIO_PHY_MASK);
+				prop_val.phy_mode = "rgmii";
+				pfe_set_properties(l_blob, prop_val, ETH_2_PATH,
+						   ETH_2_MDIO);
+			}
+		break;
+		case SERDES_2_5_G_PROTOCOL:
+			if (i == 0) {
+				prop_val.busid = cpu_to_fdt32(
+						ETH_1_2_5G_BUS_ID);
+				prop_val.phyid = cpu_to_fdt32(
+						ETH_1_2_5G_PHY_ID);
+				prop_val.mux_val = cpu_to_fdt32(
+						ETH_1_2_5G_MDIO_MUX);
+				prop_val.phy_mask = cpu_to_fdt32(
+						ETH_2_5G_MDIO_PHY_MASK);
+				prop_val.phy_mode = "sgmii-2500";
+				pfe_set_properties(l_blob, prop_val, ETH_1_PATH,
+						   ETH_1_MDIO);
+			} else {
+				prop_val.busid = cpu_to_fdt32(
+						ETH_2_2_5G_BUS_ID);
+				prop_val.phyid = cpu_to_fdt32(
+						ETH_2_2_5G_PHY_ID);
+				prop_val.mux_val = cpu_to_fdt32(
+						ETH_2_2_5G_MDIO_MUX);
+				prop_val.phy_mask = cpu_to_fdt32(
+						ETH_2_5G_MDIO_PHY_MASK);
+				prop_val.phy_mode = "sgmii-2500";
+				pfe_set_properties(l_blob, prop_val, ETH_2_PATH,
+						   ETH_2_MDIO);
+			}
+		break;
+		default:
+			printf("serdes:[%d]\n", srds_s1);
+		}
+	}
 }
 
 #ifdef CONFIG_OF_BOARD_SETUP
@@ -127,6 +250,7 @@ int ft_board_setup(void *blob, bd_t *bd)
 	arch_fixup_fdt(blob);
 
 	ft_cpu_setup(blob, bd);
+	fdt_fsl_fixup_of_pfe(blob);
 
 	return 0;
 }

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  * rtl8169.c : U-Boot driver for the RealTek RTL8169
  *
@@ -10,8 +11,6 @@
 /**************************************************************************
 *    r8169.c: Etherboot device driver for the RealTek RTL-8169 Gigabit
 *    Written 2003 by Timothy Legge <tlegge@rogers.com>
-*
- * SPDX-License-Identifier:	GPL-2.0+
 *
 *    Portions of this code based on:
 *	r8169.c: A RealTek RTL-8169 Gigabit Ethernet driver
@@ -339,9 +338,6 @@ struct rtl8169_private {
 
 static struct rtl8169_private *tpc;
 
-static const u16 rtl8169_intr_mask =
-    SYSErr | PCSTimeout | RxUnderrun | RxOverflow | RxFIFOOver | TxErr |
-    TxOK | RxErr | RxOK;
 static const unsigned int rtl8169_rx_config =
     (RX_FIFO_THRESH << RxCfgFIFOShift) | (RX_DMA_BURST << RxCfgDMAShift);
 

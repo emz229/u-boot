@@ -1,7 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  * Copyright 2013 Broadcom Corporation.
- *
- * SPDX-License-Identifier:      GPL-2.0+
  */
 
 #include <common.h>
@@ -121,12 +120,13 @@ int kona_sdhci_init(int dev_index, u32 min_clk, u32 quirks)
 	host->name = "kona-sdhci";
 	host->ioaddr = reg_base;
 	host->quirks = quirks;
+	host->max_clk = max_clk;
 
 	if (init_kona_mmc_core(host)) {
 		free(host);
 		return -EINVAL;
 	}
 
-	add_sdhci(host, max_clk, min_clk);
+	add_sdhci(host, 0, min_clk);
 	return ret;
 }

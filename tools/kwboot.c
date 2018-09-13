@@ -182,7 +182,7 @@ kwboot_tty_recv(int fd, void *buf, size_t len, int timeo)
 		}
 
 		n = read(fd, buf, len);
-		if (n < 0)
+		if (n <= 0)
 			goto out;
 
 		buf = (char *)buf + n;
@@ -466,7 +466,7 @@ kwboot_term_pipe(int in, int out, char *quit, int *s)
 	char _buf[128], *buf = _buf;
 
 	nin = read(in, buf, sizeof(buf));
-	if (nin < 0)
+	if (nin <= 0)
 		return -1;
 
 	if (quit) {
@@ -664,14 +664,6 @@ kwboot_img_patch_hdr(void *img, size_t size)
 		hdr_v0->srcaddr = hdr_v0->ext
 			? sizeof(struct kwb_header)
 			: sizeof(*hdr_v0);
-	} else {
-		/*
-		 * Subtract mkimage header size from destination address
-		 * as this header is not expected by the Marvell BootROM.
-		 * This way, the execution address is identical to the
-		 * one the image is compiled for (TEXT_BASE).
-		 */
-		hdr->destaddr = hdr->destaddr - sizeof(struct image_header);
 	}
 
 	hdr->checksum = kwboot_img_csum8(hdr, hdrsz) - csum;
@@ -829,7 +821,7 @@ main(int argc, char **argv)
 			perror("debugmsg");
 			goto out;
 		}
-	} else {
+	} else if (bootmsg) {
 		rc = kwboot_bootmsg(tty, bootmsg);
 		if (rc) {
 			perror("bootmsg");

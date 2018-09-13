@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  * SPI Flash Core
  *
@@ -5,8 +6,6 @@
  * Copyright (C) 2013 Jagannadha Sutradharudu Teki, Xilinx Inc.
  * Copyright (C) 2010 Reinhard Meyer, EMK Elektronik
  * Copyright (C) 2008 Atmel Corporation
- *
- * SPDX-License-Identifier:	GPL-2.0+
  */
 
 #include <common.h>
@@ -16,11 +15,10 @@
 #include <spi.h>
 #include <spi_flash.h>
 #include <linux/log2.h>
+#include <linux/sizes.h>
 #include <dma.h>
 
 #include "sf_internal.h"
-
-DECLARE_GLOBAL_DATA_PTR;
 
 static void spi_flash_addr(u32 addr, u8 *cmd)
 {
@@ -112,39 +110,30 @@ static int write_cr(struct spi_flash *flash, u8 wc)
 }
 #endif
 
-#ifdef CONFIG_SPI_FLASH_STMICRO
-static int read_evcr(struct spi_flash *flash, u8 *evcr)
-{
-	int ret;
-	const u8 cmd = CMD_READ_EVCR;
-
-	ret = spi_flash_read_common(flash, &cmd, 1, evcr, 1);
-	if (ret < 0) {
-		debug("SF: error reading EVCR\n");
-		return ret;
-	}
-
-	return 0;
-}
-
-static int write_evcr(struct spi_flash *flash, u8 evcr)
-{
-	u8 cmd;
-	int ret;
-
-	cmd = CMD_WRITE_EVCR;
-	ret = spi_flash_write_common(flash, &cmd, 1, &evcr, 1);
-	if (ret < 0) {
-		debug("SF: error while writing EVCR register\n");
-		return ret;
-	}
-
-	return 0;
-}
-#endif
-
 #ifdef CONFIG_SPI_FLASH_BAR
-static int spi_flash_write_bar(struct spi_flash *flash, u32 offset)
+/*
+ * This "clean_bar" is necessary in a situation when one was accessing
+ * spi flash memory > 16 MiB by using Bank Address Register's BA24 bit.
+ *
+ * After it the BA24 bit shall be cleared to allow access to correct
+ * memory region after SW reset (by calling "reset" command).
+ *
+ * Otherwise, the BA24 bit may be left set and then after reset, the
+ * ROM would read/write/erase SPL from 16 MiB * bank_sel address.
+ */
+static int clean_bar(struct spi_flash *flash)
+{
+	u8 cmd, bank_sel = 0;
+
+	if (flash->bank_curr == 0)
+		return 0;
+	cmd = flash->bank_write_cmd;
+	flash->bank_curr = 0;
+
+	return spi_flash_write_common(flash, &cmd, 1, &bank_sel, 1);
+}
+
+static int write_bar(struct spi_flash *flash, u32 offset)
 {
 	u8 cmd, bank_sel;
 	int ret;
@@ -165,7 +154,7 @@ bar_end:
 	return flash->bank_curr;
 }
 
-static int spi_flash_read_bar(struct spi_flash *flash, u8 idcode0)
+static int read_bar(struct spi_flash *flash, const struct spi_flash_info *info)
 {
 	u8 curr_bank = 0;
 	int ret;
@@ -173,7 +162,7 @@ static int spi_flash_read_bar(struct spi_flash *flash, u8 idcode0)
 	if (flash->size <= SPI_FLASH_16MB_BOUN)
 		goto bar_end;
 
-	switch (idcode0) {
+	switch (JEDEC_MFR(info)) {
 	case SPI_FLASH_CFI_MFR_SPANSION:
 		flash->bank_read_cmd = CMD_BANKADDR_BRRD;
 		flash->bank_write_cmd = CMD_BANKADDR_BRWR;
@@ -199,15 +188,13 @@ bar_end:
 #ifdef CONFIG_SF_DUAL_FLASH
 static void spi_flash_dual(struct spi_flash *flash, u32 *addr)
 {
-	struct spi_slave *spi = flash->spi;
-
 	switch (flash->dual_flash) {
 	case SF_DUAL_STACKED_FLASH:
 		if (*addr >= (flash->size >> 1)) {
 			*addr -= flash->size >> 1;
-			spi->flags |= SPI_XFER_U_PAGE;
+			flash->flags |= SNOR_F_USE_UPAGE;
 		} else {
-			spi->flags &= ~SPI_XFER_U_PAGE;
+			flash->flags &= ~SNOR_F_USE_UPAGE;
 		}
 		break;
 	case SF_DUAL_PARALLEL_FLASH:
@@ -262,8 +249,8 @@ static int spi_flash_ready(struct spi_flash *flash)
 	return sr && fsr;
 }
 
-static int spi_flash_cmd_wait_ready(struct spi_flash *flash,
-					unsigned long timeout)
+static int spi_flash_wait_till_ready(struct spi_flash *flash,
+				     unsigned long timeout)
 {
 	unsigned long timebase;
 	int ret;
@@ -311,7 +298,7 @@ int spi_flash_write_common(struct spi_flash *flash, const u8 *cmd,
 		return ret;
 	}
 
-	ret = spi_flash_cmd_wait_ready(flash, timeout);
+	ret = spi_flash_wait_till_ready(flash, timeout);
 	if (ret < 0) {
 		debug("SF: write %s timed out\n",
 		      timeout == SPI_FLASH_PROG_TIMEOUT ?
@@ -332,7 +319,7 @@ int spi_flash_cmd_erase_ops(struct spi_flash *flash, u32 offset, size_t len)
 
 	erase_size = flash->erase_size;
 	if (offset % erase_size || len % erase_size) {
-		debug("SF: Erase offset/length not multiple of erase size\n");
+		printf("SF: Erase offset/length not multiple of erase size\n");
 		return -1;
 	}
 
@@ -353,7 +340,7 @@ int spi_flash_cmd_erase_ops(struct spi_flash *flash, u32 offset, size_t len)
 			spi_flash_dual(flash, &erase_addr);
 #endif
 #ifdef CONFIG_SPI_FLASH_BAR
-		ret = spi_flash_write_bar(flash, erase_addr);
+		ret = write_bar(flash, erase_addr);
 		if (ret < 0)
 			return ret;
 #endif
@@ -371,6 +358,10 @@ int spi_flash_cmd_erase_ops(struct spi_flash *flash, u32 offset, size_t len)
 		offset += erase_size;
 		len -= erase_size;
 	}
+
+#ifdef CONFIG_SPI_FLASH_BAR
+	ret = clean_bar(flash);
+#endif
 
 	return ret;
 }
@@ -404,7 +395,7 @@ int spi_flash_cmd_write_ops(struct spi_flash *flash, u32 offset,
 			spi_flash_dual(flash, &write_addr);
 #endif
 #ifdef CONFIG_SPI_FLASH_BAR
-		ret = spi_flash_write_bar(flash, write_addr);
+		ret = write_bar(flash, write_addr);
 		if (ret < 0)
 			return ret;
 #endif
@@ -413,7 +404,7 @@ int spi_flash_cmd_write_ops(struct spi_flash *flash, u32 offset,
 
 		if (spi->max_write_size)
 			chunk_len = min(chunk_len,
-					(size_t)spi->max_write_size);
+					spi->max_write_size - sizeof(cmd));
 
 		spi_flash_addr(write_addr, cmd);
 
@@ -429,6 +420,10 @@ int spi_flash_cmd_write_ops(struct spi_flash *flash, u32 offset,
 
 		offset += chunk_len;
 	}
+
+#ifdef CONFIG_SPI_FLASH_BAR
+	ret = clean_bar(flash);
+#endif
 
 	return ret;
 }
@@ -508,7 +503,7 @@ int spi_flash_cmd_read_ops(struct spi_flash *flash, u32 offset,
 			spi_flash_dual(flash, &read_addr);
 #endif
 #ifdef CONFIG_SPI_FLASH_BAR
-		ret = spi_flash_write_bar(flash, read_addr);
+		ret = write_bar(flash, read_addr);
 		if (ret < 0)
 			return ret;
 		bank_sel = flash->bank_curr;
@@ -519,6 +514,9 @@ int spi_flash_cmd_read_ops(struct spi_flash *flash, u32 offset,
 			read_len = len;
 		else
 			read_len = remain_len;
+
+		if (spi->max_read_size)
+			read_len = min(read_len, spi->max_read_size);
 
 		spi_flash_addr(read_addr, cmd);
 
@@ -533,11 +531,173 @@ int spi_flash_cmd_read_ops(struct spi_flash *flash, u32 offset,
 		data += read_len;
 	}
 
+#ifdef CONFIG_SPI_FLASH_BAR
+	ret = clean_bar(flash);
+#endif
+
 	free(cmd);
 	return ret;
 }
 
 #ifdef CONFIG_SPI_FLASH_SST
+static bool sst26_process_bpr(u32 bpr_size, u8 *cmd, u32 bit, enum lock_ctl ctl)
+{
+	switch (ctl) {
+		case SST26_CTL_LOCK:
+			cmd[bpr_size - (bit / 8) - 1] |= BIT(bit % 8);
+			break;
+		case SST26_CTL_UNLOCK:
+			cmd[bpr_size - (bit / 8) - 1] &= ~BIT(bit % 8);
+			break;
+		case SST26_CTL_CHECK:
+			return !!(cmd[bpr_size - (bit / 8) - 1] & BIT(bit % 8));
+	}
+
+	return false;
+}
+
+/*
+ * sst26wf016/sst26wf032/sst26wf064 have next block protection:
+ * 4x   - 8  KByte blocks - read & write protection bits - upper addresses
+ * 1x   - 32 KByte blocks - write protection bits
+ * rest - 64 KByte blocks - write protection bits
+ * 1x   - 32 KByte blocks - write protection bits
+ * 4x   - 8  KByte blocks - read & write protection bits - lower addresses
+ *
+ * We'll support only per 64k lock/unlock so lower and upper 64 KByte region
+ * will be treated as single block.
+ */
+
+/*
+ * Lock, unlock or check lock status of the flash region of the flash (depending
+ * on the lock_ctl value)
+ */
+static int sst26_lock_ctl(struct spi_flash *flash, u32 ofs, size_t len, enum lock_ctl ctl)
+{
+	u32 i, bpr_ptr, rptr_64k, lptr_64k, bpr_size;
+	bool lower_64k = false, upper_64k = false;
+	u8 cmd, bpr_buff[SST26_MAX_BPR_REG_LEN] = {};
+	int ret;
+
+	/* Check length and offset for 64k alignment */
+	if ((ofs & (SZ_64K - 1)) || (len & (SZ_64K - 1)))
+		return -EINVAL;
+
+	if (ofs + len > flash->size)
+		return -EINVAL;
+
+	/* SST26 family has only 16 Mbit, 32 Mbit and 64 Mbit IC */
+	if (flash->size != SZ_2M &&
+	    flash->size != SZ_4M &&
+	    flash->size != SZ_8M)
+		return -EINVAL;
+
+	bpr_size = 2 + (flash->size / SZ_64K / 8);
+
+	cmd = SST26_CMD_READ_BPR;
+	ret = spi_flash_read_common(flash, &cmd, 1, bpr_buff, bpr_size);
+	if (ret < 0) {
+		printf("SF: fail to read block-protection register\n");
+		return ret;
+	}
+
+	rptr_64k = min_t(u32, ofs + len , flash->size - SST26_BOUND_REG_SIZE);
+	lptr_64k = max_t(u32, ofs, SST26_BOUND_REG_SIZE);
+
+	upper_64k = ((ofs + len) > (flash->size - SST26_BOUND_REG_SIZE));
+	lower_64k = (ofs < SST26_BOUND_REG_SIZE);
+
+	/* Lower bits in block-protection register are about 64k region */
+	bpr_ptr = lptr_64k / SZ_64K - 1;
+
+	/* Process 64K blocks region */
+	while (lptr_64k < rptr_64k) {
+		if (sst26_process_bpr(bpr_size, bpr_buff, bpr_ptr, ctl))
+			return EACCES;
+
+		bpr_ptr++;
+		lptr_64k += SZ_64K;
+	}
+
+	/* 32K and 8K region bits in BPR are after 64k region bits */
+	bpr_ptr = (flash->size - 2 * SST26_BOUND_REG_SIZE) / SZ_64K;
+
+	/* Process lower 32K block region */
+	if (lower_64k)
+		if (sst26_process_bpr(bpr_size, bpr_buff, bpr_ptr, ctl))
+			return EACCES;
+
+	bpr_ptr++;
+
+	/* Process upper 32K block region */
+	if (upper_64k)
+		if (sst26_process_bpr(bpr_size, bpr_buff, bpr_ptr, ctl))
+			return EACCES;
+
+	bpr_ptr++;
+
+	/* Process lower 8K block regions */
+	for (i = 0; i < SST26_BPR_8K_NUM; i++) {
+		if (lower_64k)
+			if (sst26_process_bpr(bpr_size, bpr_buff, bpr_ptr, ctl))
+				return EACCES;
+
+		/* In 8K area BPR has both read and write protection bits */
+		bpr_ptr += 2;
+	}
+
+	/* Process upper 8K block regions */
+	for (i = 0; i < SST26_BPR_8K_NUM; i++) {
+		if (upper_64k)
+			if (sst26_process_bpr(bpr_size, bpr_buff, bpr_ptr, ctl))
+				return EACCES;
+
+		/* In 8K area BPR has both read and write protection bits */
+		bpr_ptr += 2;
+	}
+
+	/* If we check region status we don't need to write BPR back */
+	if (ctl == SST26_CTL_CHECK)
+		return 0;
+
+	cmd = SST26_CMD_WRITE_BPR;
+	ret = spi_flash_write_common(flash, &cmd, 1, bpr_buff, bpr_size);
+	if (ret < 0) {
+		printf("SF: fail to write block-protection register\n");
+		return ret;
+	}
+
+	return 0;
+}
+
+static int sst26_unlock(struct spi_flash *flash, u32 ofs, size_t len)
+{
+	return sst26_lock_ctl(flash, ofs, len, SST26_CTL_UNLOCK);
+}
+
+static int sst26_lock(struct spi_flash *flash, u32 ofs, size_t len)
+{
+	return sst26_lock_ctl(flash, ofs, len, SST26_CTL_LOCK);
+}
+
+/*
+ * Returns EACCES (positive value) if region is locked, 0 if region is unlocked,
+ * and negative on errors.
+ */
+static int sst26_is_locked(struct spi_flash *flash, u32 ofs, size_t len)
+{
+	/*
+	 * is_locked function is used for check before reading or erasing flash
+	 * region, so offset and length might be not 64k allighned, so adjust
+	 * them to be 64k allighned as sst26_lock_ctl works only with 64k
+	 * allighned regions.
+	 */
+	ofs -= ofs & (SZ_64K - 1);
+	len = len & (SZ_64K - 1) ? (len & ~(SZ_64K - 1)) + SZ_64K : len;
+
+	return sst26_lock_ctl(flash, ofs, len, SST26_CTL_CHECK);
+}
+
 static int sst_byte_write(struct spi_flash *flash, u32 offset, const void *buf)
 {
 	struct spi_slave *spi = flash->spi;
@@ -560,7 +720,7 @@ static int sst_byte_write(struct spi_flash *flash, u32 offset, const void *buf)
 	if (ret)
 		return ret;
 
-	return spi_flash_cmd_wait_ready(flash, SPI_FLASH_PROG_TIMEOUT);
+	return spi_flash_wait_till_ready(flash, SPI_FLASH_PROG_TIMEOUT);
 }
 
 int sst_write_wp(struct spi_flash *flash, u32 offset, size_t len,
@@ -608,7 +768,7 @@ int sst_write_wp(struct spi_flash *flash, u32 offset, size_t len,
 			break;
 		}
 
-		ret = spi_flash_cmd_wait_ready(flash, SPI_FLASH_PROG_TIMEOUT);
+		ret = spi_flash_wait_till_ready(flash, SPI_FLASH_PROG_TIMEOUT);
 		if (ret)
 			break;
 
@@ -987,37 +1147,35 @@ static int spansion_quad_enable(struct spi_flash *flash)
 }
 #endif
 
-#ifdef CONFIG_SPI_FLASH_STMICRO
-static int micron_quad_enable(struct spi_flash *flash)
+static const struct spi_flash_info *spi_flash_read_id(struct spi_flash *flash)
 {
-	u8 qeb_status;
-	int ret;
+	int				tmp;
+	u8				id[SPI_FLASH_MAX_ID_LEN];
+	const struct spi_flash_info	*info;
 
-	ret = read_evcr(flash, &qeb_status);
-	if (ret < 0)
-		return ret;
-
-	if (!(qeb_status & STATUS_QEB_MICRON))
-		return 0;
-
-	ret = write_evcr(flash, qeb_status & ~STATUS_QEB_MICRON);
-	if (ret < 0)
-		return ret;
-
-	/* read EVCR and check it */
-	ret = read_evcr(flash, &qeb_status);
-	if (!(ret >= 0 && !(qeb_status & STATUS_QEB_MICRON))) {
-		printf("SF: Micron EVCR Quad bit not clear\n");
-		return -EINVAL;
+	tmp = spi_flash_cmd(flash->spi, CMD_READ_ID, id, SPI_FLASH_MAX_ID_LEN);
+	if (tmp < 0) {
+		printf("SF: error %d reading JEDEC ID\n", tmp);
+		return ERR_PTR(tmp);
 	}
 
-	return ret;
-}
-#endif
+	info = spi_flash_ids;
+	for (; info->name != NULL; info++) {
+		if (info->id_len) {
+			if (!memcmp(info->id, id, info->id_len))
+				return info;
+		}
+	}
 
-static int set_quad_mode(struct spi_flash *flash, u8 idcode0)
+	printf("SF: unrecognized JEDEC id bytes: %02x, %02x, %02x\n",
+	       id[0], id[1], id[2]);
+	return ERR_PTR(-ENODEV);
+}
+
+static int set_quad_mode(struct spi_flash *flash,
+			 const struct spi_flash_info *info)
 {
-	switch (idcode0) {
+	switch (JEDEC_MFR(info)) {
 #ifdef CONFIG_SPI_FLASH_MACRONIX
 	case SPI_FLASH_CFI_MFR_MACRONIX:
 		return macronix_quad_enable(flash);
@@ -1029,29 +1187,30 @@ static int set_quad_mode(struct spi_flash *flash, u8 idcode0)
 #endif
 #ifdef CONFIG_SPI_FLASH_STMICRO
 	case SPI_FLASH_CFI_MFR_STMICRO:
-		return micron_quad_enable(flash);
+		debug("SF: QEB is volatile for %02x flash\n", JEDEC_MFR(info));
+		return 0;
 #endif
 	default:
-		printf("SF: Need set QEB func for %02x flash\n", idcode0);
+		printf("SF: Need set QEB func for %02x flash\n",
+		       JEDEC_MFR(info));
 		return -1;
 	}
 }
 
 #if CONFIG_IS_ENABLED(OF_CONTROL)
-int spi_flash_decode_fdt(const void *blob, struct spi_flash *flash)
+int spi_flash_decode_fdt(struct spi_flash *flash)
 {
 #ifdef CONFIG_DM_SPI_FLASH
 	fdt_addr_t addr;
 	fdt_size_t size;
-	int node = flash->dev->of_offset;
 
-	addr = fdtdec_get_addr_size(blob, node, "memory-map", &size);
+	addr = dev_read_addr_size(flash->dev, "memory-map", &size);
 	if (addr == FDT_ADDR_T_NONE) {
 		debug("%s: Cannot decode address\n", __func__);
 		return 0;
 	}
 
-	if (flash->size != size) {
+	if (flash->size > size) {
 		debug("%s: Memory map must cover entire device\n", __func__);
 		return -1;
 	}
@@ -1062,138 +1221,42 @@ int spi_flash_decode_fdt(const void *blob, struct spi_flash *flash)
 }
 #endif /* CONFIG_IS_ENABLED(OF_CONTROL) */
 
-#ifdef CONFIG_SPI_FLASH_SPANSION
-static int spansion_s25fss_disable_4KB_erase(struct spi_slave *spi)
-{
-	u8 cmd[4];
-	u32 offset = 0x800004; /* CR3V register offset */
-	u8 cr3v;
-	int ret;
-
-	cmd[0] = CMD_SPANSION_RDAR;
-	cmd[1] = offset >> 16;
-	cmd[2] = offset >> 8;
-	cmd[3] = offset >> 0;
-
-	ret = spi_flash_cmd_read(spi, cmd, 4, &cr3v, 1);
-	if (ret)
-		return -EIO;
-	/* CR3V bit3: 4-KB Erase */
-	if (cr3v & 0x8)
-		return 0;
-
-	cmd[0] = CMD_SPANSION_WRAR;
-	cr3v |= 0x8;
-	ret = spi_flash_cmd_write(spi, cmd, 4, &cr3v, 1);
-	if (ret)
-		return -EIO;
-
-	cmd[0] = CMD_SPANSION_RDAR;
-	ret = spi_flash_cmd_read(spi, cmd, 4, &cr3v, 1);
-	if (ret)
-		return -EIO;
-	if (!(cr3v & 0x8))
-		return -EFAULT;
-
-	return 0;
-}
-#endif
-
 int spi_flash_scan(struct spi_flash *flash)
 {
 	struct spi_slave *spi = flash->spi;
-	const struct spi_flash_params *params;
-	u16 jedec, ext_jedec;
-	u8 idcode[5];
+	const struct spi_flash_info *info = NULL;
 	int ret;
 
-	/* Read the ID codes */
-	ret = spi_flash_cmd(spi, CMD_READ_ID, idcode, sizeof(idcode));
-	if (ret) {
-		printf("SF: Failed to get idcodes\n");
-		return ret;
-	}
+	info = spi_flash_read_id(flash);
+	if (IS_ERR_OR_NULL(info))
+		return -ENOENT;
 
-#ifdef DEBUG
-	printf("SF: Got idcodes\n");
-	print_buffer(0, idcode, 1, sizeof(idcode), 0);
-#endif
-
-	jedec = idcode[1] << 8 | idcode[2];
-	ext_jedec = idcode[3] << 8 | idcode[4];
-
-	/* Validate params from spi_flash_params table */
-	params = spi_flash_params_table;
-	for (; params->name != NULL; params++) {
-		if ((params->jedec >> 16) == idcode[0]) {
-			if ((params->jedec & 0xFFFF) == jedec) {
-				if (params->ext_jedec == 0)
-					break;
-				else if (params->ext_jedec == ext_jedec)
-					break;
-			}
-		}
-	}
-
-	if (!params->name) {
-		printf("SF: Unsupported flash IDs: ");
-		printf("manuf %02x, jedec %04x, ext_jedec %04x\n",
-		       idcode[0], jedec, ext_jedec);
-		return -EPROTONOSUPPORT;
-	}
-
-#ifdef CONFIG_SPI_FLASH_SPANSION
 	/*
-	 * The S25FS-S family physical sectors may be configured as a
-	 * hybrid combination of eight 4-kB parameter sectors
-	 * at the top or bottom of the address space with all
-	 * but one of the remaining sectors being uniform size.
-	 * The Parameter Sector Erase commands (20h or 21h) must
-	 * be used to erase the 4-kB parameter sectors individually.
-	 * The Sector (uniform sector) Erase commands (D8h or DCh)
-	 * must be used to erase any of the remaining
-	 * sectors, including the portion of highest or lowest address
-	 * sector that is not overlaid by the parameter sectors.
-	 * The uniform sector erase command has no effect on parameter sectors.
+	 * Flash powers up read-only, so clear BP# bits.
+	 *
+	 * Note on some flash (like Macronix), QE (quad enable) bit is in the
+	 * same status register as BP# bits, and we need preserve its original
+	 * value during a reboot cycle as this is required by some platforms
+	 * (like Intel ICH SPI controller working under descriptor mode).
 	 */
-	if ((jedec == 0x0219 || (jedec == 0x0220)) &&
-	    (ext_jedec & 0xff00) == 0x4d00) {
-		int ret;
-		u8 id[6];
+	if (JEDEC_MFR(info) == SPI_FLASH_CFI_MFR_ATMEL ||
+	   (JEDEC_MFR(info) == SPI_FLASH_CFI_MFR_SST) ||
+	   (JEDEC_MFR(info) == SPI_FLASH_CFI_MFR_MACRONIX)) {
+		u8 sr = 0;
 
-		/* Read the ID codes again, 6 bytes */
-		ret = spi_flash_cmd(flash->spi, CMD_READ_ID, id, sizeof(id));
-		if (ret)
-			return -EIO;
-
-		ret = memcmp(id, idcode, 5);
-		if (ret)
-			return -EIO;
-
-		/* 0x81: S25FS-S family 0x80: S25FL-S family */
-		if (id[5] == 0x81) {
-			ret = spansion_s25fss_disable_4KB_erase(spi);
-			if (ret)
-				return ret;
+		if (JEDEC_MFR(info) == SPI_FLASH_CFI_MFR_MACRONIX) {
+			read_sr(flash, &sr);
+			sr &= STATUS_QEB_MXIC;
 		}
+		write_sr(flash, sr);
 	}
-#endif
-	/* Flash powers up read-only, so clear BP# bits */
-	if (idcode[0] == SPI_FLASH_CFI_MFR_ATMEL ||
-	    idcode[0] == SPI_FLASH_CFI_MFR_MACRONIX ||
-	    idcode[0] == SPI_FLASH_CFI_MFR_SST)
-		write_sr(flash, 0);
 
-	/* Assign spi data */
-	flash->name = params->name;
+	flash->name = info->name;
 	flash->memory_map = spi->memory_map;
-	flash->dual_flash = spi->option;
 
-	/* Assign spi flash flags */
-	if (params->flags & SST_WR)
+	if (info->flags & SST_WR)
 		flash->flags |= SNOR_F_SST_WR;
 
-	/* Assign spi_flash ops */
 #ifndef CONFIG_DM_SPI_FLASH
 	flash->write = spi_flash_cmd_write_ops;
 #if defined(CONFIG_SPI_FLASH_SST)
@@ -1208,49 +1271,52 @@ int spi_flash_scan(struct spi_flash *flash)
 	flash->read = spi_flash_cmd_read_ops;
 #endif
 
-	/* lock hooks are flash specific - assign them based on idcode0 */
-	switch (idcode[0]) {
 #if defined(CONFIG_SPI_FLASH_STMICRO) || defined(CONFIG_SPI_FLASH_SST)
-	case SPI_FLASH_CFI_MFR_STMICRO:
-	case SPI_FLASH_CFI_MFR_SST:
+	/* NOR protection support for STmicro/Micron chips and similar */
+	if (JEDEC_MFR(info) == SPI_FLASH_CFI_MFR_STMICRO ||
+	    JEDEC_MFR(info) == SPI_FLASH_CFI_MFR_SST) {
 		flash->flash_lock = stm_lock;
 		flash->flash_unlock = stm_unlock;
 		flash->flash_is_locked = stm_is_locked;
 		flash->sr_protect = stm_sr_protect;
-		break;
+	}
+#endif
+
+/* sst26wf series block protection implementation differs from other series */
+#if defined(CONFIG_SPI_FLASH_SST)
+	if (JEDEC_MFR(info) == SPI_FLASH_CFI_MFR_SST && info->id[1] == 0x26) {
+		flash->flash_lock = sst26_lock;
+		flash->flash_unlock = sst26_unlock;
+		flash->flash_is_locked = sst26_is_locked;
+	}
 #endif
 #if defined(CONFIG_SPI_FLASH_SPANSION) || defined(CONFIG_SPI_FLASH_WINBOND)
-	case SPI_FLASH_CFI_MFR_SPANSION:
-	case SPI_FLASH_CFI_MFR_WINBOND:
+	if (JEDEC_MFR(info) == SPI_FLASH_CFI_MFR_SPANSION ||
+	    JEDEC_MFR(info) == SPI_FLASH_CFI_MFR_WINBOND) {
 		flash->flash_lock = stm_lock;
 		flash->flash_unlock = stm_unlock;
 		flash->flash_is_locked = stm_is_locked;
 		flash->sr_protect = winbond_sr_protect;
-		break;
-#endif
-	default:
-		debug("SF: Lock ops not supported for %02x flash\n", idcode[0]);
 	}
-
+#endif
 	/* Compute the flash size */
 	flash->shift = (flash->dual_flash & SF_DUAL_PARALLEL_FLASH) ? 1 : 0;
+	flash->page_size = info->page_size;
 	/*
-	 * The Spansion S25FL032P and S25FL064P have 256b pages, yet use the
-	 * 0x4d00 Extended JEDEC code. The rest of the Spansion flashes with
-	 * the 0x4d00 Extended JEDEC code have 512b pages. All of the others
-	 * have 256b pages.
+	 * The Spansion S25FS512S, S25FL032P and S25FL064P have 256b pages,
+	 * yet use the 0x4d00 Extended JEDEC code. The rest of the Spansion
+	 * flashes with the 0x4d00 Extended JEDEC code have 512b pages.
+	 * All of the others have 256b pages.
 	 */
-	if (ext_jedec == 0x4d00) {
-		if ((jedec == 0x0215) || (jedec == 0x216) || (jedec == 0x220))
-			flash->page_size = 256;
-		else
+	if (JEDEC_EXT(info) == 0x4d00) {
+		if ((JEDEC_ID(info) != 0x0215) &&
+		    (JEDEC_ID(info) != 0x0216) &&
+		    (JEDEC_ID(info) != 0x0220))
 			flash->page_size = 512;
-	} else {
-		flash->page_size = 256;
 	}
 	flash->page_size <<= flash->shift;
-	flash->sector_size = params->sector_size << flash->shift;
-	flash->size = flash->sector_size * params->nr_sectors << flash->shift;
+	flash->sector_size = info->sector_size << flash->shift;
+	flash->size = flash->sector_size * info->n_sectors << flash->shift;
 #ifdef CONFIG_SF_DUAL_FLASH
 	if (flash->dual_flash & SF_DUAL_STACKED_FLASH)
 		flash->size <<= 1;
@@ -1258,7 +1324,7 @@ int spi_flash_scan(struct spi_flash *flash)
 
 #ifdef CONFIG_SPI_FLASH_USE_4K_SECTORS
 	/* Compute erase sector and command */
-	if (params->flags & SECT_4K) {
+	if (info->flags & SECT_4K) {
 		flash->erase_cmd = CMD_ERASE_4K;
 		flash->erase_size = 4096 << flash->shift;
 	} else
@@ -1275,13 +1341,13 @@ int spi_flash_scan(struct spi_flash *flash)
 	flash->read_cmd = CMD_READ_ARRAY_FAST;
 	if (spi->mode & SPI_RX_SLOW)
 		flash->read_cmd = CMD_READ_ARRAY_SLOW;
-	else if (spi->mode & SPI_RX_QUAD && params->flags & RD_QUAD)
+	else if (spi->mode & SPI_RX_QUAD && info->flags & RD_QUAD)
 		flash->read_cmd = CMD_READ_QUAD_OUTPUT_FAST;
-	else if (spi->mode & SPI_RX_DUAL && params->flags & RD_DUAL)
+	else if (spi->mode & SPI_RX_DUAL && info->flags & RD_DUAL)
 		flash->read_cmd = CMD_READ_DUAL_OUTPUT_FAST;
 
 	/* Look for write commands */
-	if (params->flags & WR_QPP && spi->mode & SPI_TX_QUAD)
+	if (info->flags & WR_QPP && spi->mode & SPI_TX_QUAD)
 		flash->write_cmd = CMD_QUAD_PAGE_PROGRAM;
 	else
 		/* Go for default supported write cmd */
@@ -1291,9 +1357,10 @@ int spi_flash_scan(struct spi_flash *flash)
 	if ((flash->read_cmd == CMD_READ_QUAD_OUTPUT_FAST) ||
 	    (flash->read_cmd == CMD_READ_QUAD_IO_FAST) ||
 	    (flash->write_cmd == CMD_QUAD_PAGE_PROGRAM)) {
-		ret = set_quad_mode(flash, idcode[0]);
+		ret = set_quad_mode(flash, info);
 		if (ret) {
-			debug("SF: Fail to set QEB for %02x\n", idcode[0]);
+			debug("SF: Fail to set QEB for %02x\n",
+			      JEDEC_MFR(info));
 			return -EINVAL;
 		}
 	}
@@ -1318,19 +1385,19 @@ int spi_flash_scan(struct spi_flash *flash)
 	}
 
 #ifdef CONFIG_SPI_FLASH_STMICRO
-	if (params->flags & E_FSR)
+	if (info->flags & E_FSR)
 		flash->flags |= SNOR_F_USE_FSR;
 #endif
 
 	/* Configure the BAR - discover bank cmds and read current bank */
 #ifdef CONFIG_SPI_FLASH_BAR
-	ret = spi_flash_read_bar(flash, idcode[0]);
+	ret = read_bar(flash, info);
 	if (ret < 0)
 		return ret;
 #endif
 
-#if CONFIG_IS_ENABLED(OF_CONTROL)
-	ret = spi_flash_decode_fdt(gd->fdt_blob, flash);
+#if CONFIG_IS_ENABLED(OF_CONTROL) && !CONFIG_IS_ENABLED(OF_PLATDATA)
+	ret = spi_flash_decode_fdt(flash);
 	if (ret) {
 		debug("SF: FDT decode error\n");
 		return -EINVAL;
@@ -1357,5 +1424,5 @@ int spi_flash_scan(struct spi_flash *flash)
 	}
 #endif
 
-	return ret;
+	return 0;
 }

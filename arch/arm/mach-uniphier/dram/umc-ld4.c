@@ -1,19 +1,18 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  * Copyright (C) 2011-2014 Panasonic Corporation
  * Copyright (C) 2015-2016 Socionext Inc.
  *   Author: Masahiro Yamada <yamada.masahiro@socionext.com>
- *
- * SPDX-License-Identifier:	GPL-2.0+
  */
 
 #include <common.h>
-#include <linux/err.h>
+#include <linux/errno.h>
 #include <linux/io.h>
 #include <linux/sizes.h>
 #include <asm/processor.h>
 
 #include "../init.h"
-#include "ddrphy-regs.h"
+#include "ddrphy-init.h"
 #include "umc-regs.h"
 
 #define DRAM_CH_NR	2
@@ -149,7 +148,7 @@ static int umc_ch_init(void __iomem *dc_base, void __iomem *ca_base,
 	int ret;
 
 	writel(UMC_INITSET_INIT1EN, dc_base + UMC_INITSET);
-	while (readl(dc_base + UMC_INITSET) & UMC_INITSTAT_INIT1ST)
+	while (readl(dc_base + UMC_INITSTAT) & UMC_INITSTAT_INIT1ST)
 		cpu_relax();
 
 	writel(0x00000101, dc_base + UMC_DIOCTLA);

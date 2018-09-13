@@ -1,11 +1,10 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  * Marvell MMC/SD/SDIO driver
  *
  * (C) Copyright 2012-2014
  * Marvell Semiconductor <www.marvell.com>
  * Written-by: Maen Suleiman, Gerald Kerma
- *
- * SPDX-License-Identifier:	GPL-2.0+
  */
 
 #include <common.h>
@@ -316,12 +315,14 @@ static void mvebu_mmc_set_bus(unsigned int bus)
 	mvebu_mmc_write(SDIO_HOST_CTRL, ctrl_reg);
 }
 
-static void mvebu_mmc_set_ios(struct mmc *mmc)
+static int mvebu_mmc_set_ios(struct mmc *mmc)
 {
 	debug("%s: bus[%d] clock[%d]\n", DRIVER_NAME,
 	      mmc->bus_width, mmc->clock);
 	mvebu_mmc_set_bus(mmc->bus_width);
 	mvebu_mmc_set_clk(mmc->clock);
+
+	return 0;
 }
 
 /*

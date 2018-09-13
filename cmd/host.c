@@ -1,7 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  * Copyright (c) 2012, Google Inc.
- *
- * SPDX-License-Identifier:	GPL-2.0+
  */
 
 #include <common.h>
@@ -181,7 +180,7 @@ U_BOOT_CMD(
 	"host ls hostfs - <filename>                    - list files on host\n"
 	"host save hostfs - <addr> <filename> <bytes> [<offset>] - "
 		"save a file to host\n"
-	"host size hostfs - <filename> - determine size of file on host"
+	"host size hostfs - <filename> - determine size of file on host\n"
 	"host bind <dev> [<filename>] - bind \"host\" device to file\n"
 	"host info [<dev>]            - show device binding & info\n"
 	"host dev [<dev>] - Set or retrieve the current host device\n"

@@ -1,10 +1,9 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  * (C) Copyright 2014
  * Texas Instruments, <www.ti.com>
  *
  * Dan Murphy <dmurphy@ti.com>
- *
- * SPDX-License-Identifier:	GPL-2.0+
  *
  * Derived work from spl_mmc.c
  */
@@ -15,8 +14,6 @@
 #include <errno.h>
 #include <usb.h>
 #include <fat.h>
-
-DECLARE_GLOBAL_DATA_PTR;
 
 #ifdef CONFIG_USB_STORAGE
 static int usb_stor_curr_dev = -1; /* current device */
@@ -65,4 +62,4 @@ static int spl_usb_load_image(struct spl_image_info *spl_image,
 
 	return 0;
 }
-SPL_LOAD_IMAGE_METHOD(0, BOOT_DEVICE_USB, spl_usb_load_image);
+SPL_LOAD_IMAGE_METHOD("USB", 0, BOOT_DEVICE_USB, spl_usb_load_image);

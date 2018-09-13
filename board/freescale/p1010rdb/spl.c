@@ -1,10 +1,10 @@
+// SPDX-License-Identifier: GPL-2.0+
 /* Copyright 2013 Freescale Semiconductor, Inc.
- *
- * SPDX-License-Identifier:    GPL-2.0+
  */
 
 #include <common.h>
 #include <console.h>
+#include <environment.h>
 #include <ns16550.h>
 #include <malloc.h>
 #include <mmc.h>
@@ -32,7 +32,7 @@ void board_init_f(ulong bootflag)
 	/* Clock configuration to access CPLD using IFC(GPCM) */
 	setbits_be32(&ifc.gregs->ifc_gcr, 1 << IFC_GCR_TBCTL_TRN_TIME_SHIFT);
 
-#ifdef CONFIG_P1010RDB_PB
+#ifdef CONFIG_TARGET_P1010RDB_PB
 	setbits_be32(&gur->pmuxcr2, MPC85xx_PMUXCR2_GPIO01_DRVVBUS);
 #endif
 
@@ -69,7 +69,7 @@ void board_init_r(gd_t *gd, ulong dest_addr)
 	bd->bi_memstart = CONFIG_SYS_INIT_L2_ADDR;
 	bd->bi_memsize = CONFIG_SYS_L2_SIZE;
 
-	probecpu();
+	arch_cpu_init();
 	get_clocks();
 	mem_malloc_init(CONFIG_SPL_RELOC_MALLOC_ADDR,
 			CONFIG_SPL_RELOC_MALLOC_SIZE);
@@ -87,14 +87,14 @@ void board_init_r(gd_t *gd, ulong dest_addr)
 	nand_spl_load_image(CONFIG_ENV_OFFSET, CONFIG_ENV_SIZE,
 			    (uchar *)CONFIG_ENV_ADDR);
 			    gd->env_addr  = (ulong)(CONFIG_ENV_ADDR);
-	gd->env_valid = 1;
+	gd->env_valid = ENV_VALID;
 #else
 	env_relocate();
 #endif
 
 	i2c_init_all();
 
-	gd->ram_size = initdram(0);
+	dram_init();
 #ifdef CONFIG_SPL_NAND_BOOT
 	puts("\nTertiary program loader running in sram...");
 #else

@@ -1,8 +1,7 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  * Copyright (C) 2015 Atmel Corporation
  *		      Wenyou.Yang <wenyou.yang@atmel.com>
- *
- * SPDX-License-Identifier:	GPL-2.0+
  */
 
 #include <common.h>
@@ -13,6 +12,7 @@
 #include <asm/arch/clk.h>
 
 #define ATMEL_SDHC_MIN_FREQ	400000
+#define ATMEL_SDHC_GCK_RATE	240000000
 
 #ifndef CONFIG_DM_MMC
 int atmel_sdhci_init(void *regbase, u32 id)
@@ -28,15 +28,16 @@ int atmel_sdhci_init(void *regbase, u32 id)
 
 	host->name = "atmel_sdhci";
 	host->ioaddr = regbase;
-	host->quirks = 0;
+	host->quirks = SDHCI_QUIRK_WAIT_SEND_CMD;
 	max_clk = at91_get_periph_generated_clk(id);
 	if (!max_clk) {
 		printf("%s: Failed to get the proper clock\n", __func__);
 		free(host);
 		return -ENODEV;
 	}
+	host->max_clk = max_clk;
 
-	add_sdhci(host, max_clk, min_clk);
+	add_sdhci(host, 0, min_clk);
 
 	return 0;
 }
@@ -50,42 +51,16 @@ struct atmel_sdhci_plat {
 	struct mmc mmc;
 };
 
-static int atmel_sdhci_get_clk(struct udevice *dev, int index, struct clk *clk)
-{
-	struct udevice *dev_clk;
-	int periph, ret;
-
-	ret = clk_get_by_index(dev, index, clk);
-	if (ret)
-		return ret;
-
-	periph = fdtdec_get_uint(gd->fdt_blob, clk->dev->of_offset, "reg", -1);
-	if (periph < 0)
-		return -EINVAL;
-
-	dev_clk = dev_get_parent(clk->dev);
-	ret = clk_request(dev_clk, clk);
-	if (ret)
-		return ret;
-
-	clk->id = periph;
-
-	return 0;
-}
-
 static int atmel_sdhci_probe(struct udevice *dev)
 {
 	struct mmc_uclass_priv *upriv = dev_get_uclass_priv(dev);
 	struct atmel_sdhci_plat *plat = dev_get_platdata(dev);
 	struct sdhci_host *host = dev_get_priv(dev);
 	u32 max_clk;
-	u32 caps, caps_1;
-	u32 clk_base, clk_mul;
-	ulong gck_rate;
 	struct clk clk;
 	int ret;
 
-	ret = atmel_sdhci_get_clk(dev, 0, &clk);
+	ret = clk_get_by_index(dev, 0, &clk);
 	if (ret)
 		return ret;
 
@@ -94,23 +69,17 @@ static int atmel_sdhci_probe(struct udevice *dev)
 		return ret;
 
 	host->name = dev->name;
-	host->ioaddr = (void *)dev_get_addr(dev);
+	host->ioaddr = (void *)devfdt_get_addr(dev);
 
-	host->quirks = 0;
-	host->bus_width	= fdtdec_get_int(gd->fdt_blob, dev->of_offset,
+	host->quirks = SDHCI_QUIRK_WAIT_SEND_CMD;
+	host->bus_width	= fdtdec_get_int(gd->fdt_blob, dev_of_offset(dev),
 					 "bus-width", 4);
 
-	caps = sdhci_readl(host, SDHCI_CAPABILITIES);
-	clk_base = (caps & SDHCI_CLOCK_V3_BASE_MASK) >> SDHCI_CLOCK_BASE_SHIFT;
-	caps_1 = sdhci_readl(host, SDHCI_CAPABILITIES_1);
-	clk_mul = (caps_1 & SDHCI_CLOCK_MUL_MASK) >> SDHCI_CLOCK_MUL_SHIFT;
-	gck_rate = clk_base * 1000000 * (clk_mul + 1);
-
-	ret = atmel_sdhci_get_clk(dev, 1, &clk);
+	ret = clk_get_by_index(dev, 1, &clk);
 	if (ret)
 		return ret;
 
-	ret = clk_set_rate(&clk, gck_rate);
+	ret = clk_set_rate(&clk, ATMEL_SDHC_GCK_RATE);
 	if (ret)
 		return ret;
 
@@ -118,7 +87,9 @@ static int atmel_sdhci_probe(struct udevice *dev)
 	if (!max_clk)
 		return -EINVAL;
 
-	ret = sdhci_setup_cfg(&plat->cfg, host, max_clk, ATMEL_SDHC_MIN_FREQ);
+	host->max_clk = max_clk;
+
+	ret = sdhci_setup_cfg(&plat->cfg, host, 0, ATMEL_SDHC_MIN_FREQ);
 	if (ret)
 		return ret;
 

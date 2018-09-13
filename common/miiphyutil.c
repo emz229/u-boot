@@ -1,8 +1,7 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  * (C) Copyright 2001
  * Gerald Van Baren, Custom IDEAS, vanbaren@cideas.com.
- *
- * SPDX-License-Identifier:	GPL-2.0+
  */
 
 /*
@@ -107,6 +106,18 @@ int mdio_register(struct mii_dev *bus)
 	return 0;
 }
 
+int mdio_register_seq(struct mii_dev *bus, int seq)
+{
+	int ret;
+
+	/* Setup a unique name for each mdio bus */
+	ret = snprintf(bus->name, MDIO_NAME_LEN, "eth%d", seq);
+	if (ret < 0)
+		return ret;
+
+	return mdio_register(bus);
+}
+
 int mdio_unregister(struct mii_dev *bus)
 {
 	if (!bus)
@@ -135,7 +146,7 @@ void mdio_list_devices(void)
 			struct phy_device *phydev = bus->phymap[i];
 
 			if (phydev) {
-				printf("%d - %s", i, phydev->drv->name);
+				printf("%x - %s", i, phydev->drv->name);
 
 				if (phydev->dev)
 					printf(" <--> %s\n", phydev->dev->name);

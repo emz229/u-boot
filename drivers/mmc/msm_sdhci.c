@@ -1,11 +1,10 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  * Qualcomm SDHCI driver - SD/eMMC controller
  *
  * (C) Copyright 2015 Mateusz Kulikowski <mateusz.kulikowski@gmail.com>
  *
  * Based on Linux driver
- *
- * SPDX-License-Identifier:	GPL-2.0+
  */
 
 #include <common.h>
@@ -50,16 +49,16 @@ DECLARE_GLOBAL_DATA_PTR;
 
 static int msm_sdc_clk_init(struct udevice *dev)
 {
-	uint clk_rate = fdtdec_get_uint(gd->fdt_blob, dev->of_offset,
-					"clock-frequency", 400000);
+	int node = dev_of_offset(dev);
+	uint clk_rate = fdtdec_get_uint(gd->fdt_blob, node, "clock-frequency",
+					400000);
 	uint clkd[2]; /* clk_id and clk_no */
 	int clk_offset;
 	struct udevice *clk_dev;
 	struct clk clk;
 	int ret;
 
-	ret = fdtdec_get_int_array(gd->fdt_blob, dev->of_offset, "clock", clkd,
-				   2);
+	ret = fdtdec_get_int_array(gd->fdt_blob, node, "clock", clkd, 2);
 	if (ret)
 		return ret;
 
@@ -96,6 +95,8 @@ static int msm_sdc_probe(struct udevice *dev)
 
 	host->quirks = SDHCI_QUIRK_WAIT_SEND_CMD | SDHCI_QUIRK_BROKEN_R1B;
 
+	host->max_clk = 0;
+
 	/* Init clocks */
 	ret = msm_sdc_clk_init(dev);
 	if (ret)
@@ -107,15 +108,15 @@ static int msm_sdc_probe(struct udevice *dev)
 
 
 	/* Wait for reset to be written to register */
-	if (wait_for_bit(__func__, prv->base + SDCC_MCI_STATUS2,
-			 SDCC_MCI_STATUS2_MCI_ACT, false, 10, false)) {
+	if (wait_for_bit_le32(prv->base + SDCC_MCI_STATUS2,
+			      SDCC_MCI_STATUS2_MCI_ACT, false, 10, false)) {
 		printf("msm_sdhci: reset request failed\n");
 		return -EIO;
 	}
 
 	/* SW reset can take upto 10HCLK + 15MCLK cycles. (min 40us) */
-	if (wait_for_bit(__func__, prv->base + SDCC_MCI_POWER,
-			 SDCC_MCI_POWER_SW_RST, false, 2, false)) {
+	if (wait_for_bit_le32(prv->base + SDCC_MCI_POWER,
+			      SDCC_MCI_POWER_SW_RST, false, 2, false)) {
 		printf("msm_sdhci: stuck in reset\n");
 		return -ETIMEDOUT;
 	}
@@ -166,17 +167,14 @@ static int msm_ofdata_to_platdata(struct udevice *dev)
 	struct udevice *parent = dev->parent;
 	struct msm_sdhc *priv = dev_get_priv(dev);
 	struct sdhci_host *host = &priv->host;
+	int node = dev_of_offset(dev);
 
 	host->name = strdup(dev->name);
-	host->ioaddr = (void *)dev_get_addr(dev);
-	host->bus_width = fdtdec_get_int(gd->fdt_blob, dev->of_offset,
-					 "bus-width", 4);
-	host->index = fdtdec_get_uint(gd->fdt_blob, dev->of_offset, "index", 0);
+	host->ioaddr = (void *)devfdt_get_addr(dev);
+	host->bus_width = fdtdec_get_int(gd->fdt_blob, node, "bus-width", 4);
+	host->index = fdtdec_get_uint(gd->fdt_blob, node, "index", 0);
 	priv->base = (void *)fdtdec_get_addr_size_auto_parent(gd->fdt_blob,
-							      parent->of_offset,
-							      dev->of_offset,
-							      "reg", 1, NULL,
-							      false);
+			dev_of_offset(parent), node, "reg", 1, NULL, false);
 	if (priv->base == (void *)FDT_ADDR_T_NONE ||
 	    host->ioaddr == (void *)FDT_ADDR_T_NONE)
 		return -EINVAL;

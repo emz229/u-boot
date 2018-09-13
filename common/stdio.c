@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  * Copyright (C) 2009 Sergey Kubushyn <ksi@koi8.net>
  *
@@ -5,8 +6,6 @@
  *
  * (C) Copyright 2000
  * Paolo Scaffardi, AIRVENT SAM s.p.a - RIMINI(ITALY), arsenio@tin.it
- *
- * SPDX-License-Identifier:	GPL-2.0+
  */
 
 #include <config.h>
@@ -17,11 +16,8 @@
 #include <malloc.h>
 #include <stdio_dev.h>
 #include <serial.h>
-#ifdef CONFIG_LOGBUFFER
-#include <logbuff.h>
-#endif
 
-#if defined(CONFIG_HARD_I2C) || defined(CONFIG_SYS_I2C)
+#if defined(CONFIG_SYS_I2C)
 #include <i2c.h>
 #endif
 
@@ -37,7 +33,7 @@ char *stdio_names[MAX_FILES] = { "stdin", "stdout", "stderr" };
 #define	CONFIG_SYS_DEVICE_NULLDEV	1
 #endif
 
-#ifdef	CONFIG_SYS_STDIO_DEREGISTER
+#if CONFIG_IS_ENABLED(SYS_STDIO_DEREGISTER)
 #define	CONFIG_SYS_DEVICE_NULLDEV	1
 #endif
 
@@ -151,9 +147,10 @@ static int stdio_probe_device(const char *name, enum uclass_id id,
 	*sdevp = NULL;
 	seq = trailing_strtoln(name, NULL);
 	if (seq == -1)
+		seq = 0;
+	ret = uclass_get_device_by_seq(id, seq, &dev);
+	if (ret == -ENODEV)
 		ret = uclass_first_device_err(id, &dev);
-	else
-		ret = uclass_get_device_by_seq(id, seq, &dev);
 	if (ret) {
 		debug("No %s device for seq %d (%s)\n", uclass_get_name(id),
 		      seq, name);
@@ -173,12 +170,12 @@ static int stdio_probe_device(const char *name, enum uclass_id id,
 }
 #endif
 
-struct stdio_dev* stdio_get_by_name(const char *name)
+struct stdio_dev *stdio_get_by_name(const char *name)
 {
 	struct list_head *pos;
 	struct stdio_dev *sdev;
 
-	if(!name)
+	if (!name)
 		return NULL;
 
 	list_for_each(pos, &(devs.list)) {
@@ -245,7 +242,7 @@ int stdio_register(struct stdio_dev *dev)
 /* deregister the device "devname".
  * returns 0 if success, -1 if device is assigned and 1 if devname not found
  */
-#ifdef	CONFIG_SYS_STDIO_DEREGISTER
+#if CONFIG_IS_ENABLED(SYS_STDIO_DEREGISTER)
 int stdio_deregister_dev(struct stdio_dev *dev, int force)
 {
 	int l;
@@ -292,7 +289,7 @@ int stdio_deregister(const char *devname, int force)
 
 	return stdio_deregister_dev(dev, force);
 }
-#endif	/* CONFIG_SYS_STDIO_DEREGISTER */
+#endif /* CONFIG_IS_ENABLED(SYS_STDIO_DEREGISTER) */
 
 int stdio_init_tables(void)
 {
@@ -345,9 +342,6 @@ int stdio_add_devices(void)
 #ifdef CONFIG_SYS_I2C
 	i2c_init_all();
 #else
-#if defined(CONFIG_HARD_I2C)
-	i2c_init (CONFIG_SYS_I2C_SPEED, CONFIG_SYS_I2C_SLAVE);
-#endif
 #endif
 #ifdef CONFIG_DM_VIDEO
 	/*
@@ -382,9 +376,6 @@ int stdio_add_devices(void)
 #endif /* CONFIG_DM_VIDEO */
 #if defined(CONFIG_KEYBOARD) && !defined(CONFIG_DM_KEYBOARD)
 	drv_keyboard_init ();
-#endif
-#ifdef CONFIG_LOGBUFFER
-	drv_logbuff_init ();
 #endif
 	drv_system_init ();
 	serial_stdio_init ();

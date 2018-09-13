@@ -14,6 +14,9 @@
 # For example:
 #   scripts/check-config.sh b/chromebook_link/u-boot.cfg kconfig_whitelist.txt .
 
+set -e
+set -u
+
 path="$1"
 whitelist="$2"
 srctree="$3"
@@ -33,16 +36,17 @@ cat ${path} |sed -n 's/^#define \(CONFIG_[A-Za-z0-9_]*\).*/\1/p' |sort |uniq \
 comm -23 ${configs} ${whitelist} > ${suspects}
 
 cat `find ${srctree} -name "Kconfig*"` |sed -n \
-	-e 's/^config *\([A-Za-z0-9_]*\).*$/CONFIG_\1/p' \
-	-e 's/^menuconfig \([A-Za-z0-9_]*\).*$/CONFIG_\1/p' |sort |uniq > ${ok}
+	-e 's/^\s*config *\([A-Za-z0-9_]*\).*$/CONFIG_\1/p' \
+	-e 's/^\s*menuconfig \([A-Za-z0-9_]*\).*$/CONFIG_\1/p' \
+	|sort |uniq > ${ok}
 comm -23 ${suspects} ${ok} >${new_adhoc}
 if [ -s ${new_adhoc} ]; then
-	echo "Error: You must add new CONFIG options using Kconfig"
-	echo "The following new ad-hoc CONFIG options were detected:"
-	cat ${new_adhoc}
-	echo
-	echo "Please add these via Kconfig instead. Find a suitable Kconfig"
-	echo "file and add a 'config' or 'menuconfig' option."
+	echo >&2 "Error: You must add new CONFIG options using Kconfig"
+	echo >&2 "The following new ad-hoc CONFIG options were detected:"
+	cat >&2 ${new_adhoc}
+	echo >&2
+	echo >&2 "Please add these via Kconfig instead. Find a suitable Kconfig"
+	echo >&2 "file and add a 'config' or 'menuconfig' option."
 	# Don't delete the temporary files in case they are useful
 	exit 1
 else

@@ -24,8 +24,6 @@
 #include <dm/lists.h>
 #include <dm/uclass-internal.h>
 
-DECLARE_GLOBAL_DATA_PTR;
-
 /*
  * The different states that our SPI flash transitions between.
  * We need to keep track of this across multiple xfer calls since
@@ -88,7 +86,7 @@ struct sandbox_spi_flash {
 	/* The current flash status (see STAT_XXX defines above) */
 	u16 status;
 	/* Data describing the flash we're emulating */
-	const struct spi_flash_params *data;
+	const struct spi_flash_info *data;
 	/* The file on disk to serv up data from */
 	int fd;
 };
@@ -112,7 +110,7 @@ static int sandbox_sf_probe(struct udevice *dev)
 	struct sandbox_spi_flash *sbsf = dev_get_priv(dev);
 	const char *file;
 	size_t len, idname_len;
-	const struct spi_flash_params *data;
+	const struct spi_flash_info *data;
 	struct sandbox_spi_flash_plat_data *pdata = dev_get_platdata(dev);
 	struct sandbox_state *state = state_get_current();
 	struct udevice *bus = dev->parent;
@@ -168,7 +166,7 @@ static int sandbox_sf_probe(struct udevice *dev)
 	}
 	debug("%s: device='%s'\n", __func__, spec);
 
-	for (data = spi_flash_params_table; data->name; data++) {
+	for (data = spi_flash_ids; data->name; data++) {
 		len = strlen(data->name);
 		if (idname_len != len)
 			continue;
@@ -289,7 +287,7 @@ static int sandbox_sf_process_cmd(struct sandbox_spi_flash *sbsf, const u8 *rx,
 		/* we only support erase here */
 		if (sbsf->cmd == CMD_ERASE_CHIP) {
 			sbsf->erase_size = sbsf->data->sector_size *
-				sbsf->data->nr_sectors;
+				sbsf->data->n_sectors;
 		} else if (sbsf->cmd == CMD_ERASE_4K && (flags & SECT_4K)) {
 			sbsf->erase_size = 4 << 10;
 		} else if (sbsf->cmd == CMD_ERASE_64K && !(flags & SECT_4K)) {
@@ -359,7 +357,8 @@ static int sandbox_sf_xfer(struct udevice *dev, unsigned int bitlen,
 			debug(" id: off:%u tx:", sbsf->off);
 			if (sbsf->off < IDCODE_LEN) {
 				/* Extract correct byte from ID 0x00aabbcc */
-				id = sbsf->data->jedec >>
+				id = ((JEDEC_MFR(sbsf->data) << 16) |
+					JEDEC_ID(sbsf->data)) >>
 					(8 * (IDCODE_LEN - 1 - sbsf->off));
 			} else {
 				id = 0;
@@ -514,11 +513,9 @@ static int sandbox_sf_xfer(struct udevice *dev, unsigned int bitlen,
 int sandbox_sf_ofdata_to_platdata(struct udevice *dev)
 {
 	struct sandbox_spi_flash_plat_data *pdata = dev_get_platdata(dev);
-	const void *blob = gd->fdt_blob;
-	int node = dev->of_offset;
 
-	pdata->filename = fdt_getprop(blob, node, "sandbox,filename", NULL);
-	pdata->device_name = fdt_getprop(blob, node, "compatible", NULL);
+	pdata->filename = dev_read_string(dev, "sandbox,filename");
+	pdata->device_name = dev_read_string(dev, "compatible");
 	if (!pdata->filename || !pdata->device_name) {
 		debug("%s: Missing properties, filename=%s, device_name=%s\n",
 		      __func__, pdata->filename, pdata->device_name);
@@ -559,7 +556,7 @@ static int sandbox_cmdline_cb_spi_sf(struct sandbox_state *state,
 SANDBOX_CMDLINE_OPT(spi_sf, 1, "connect a SPI flash: <bus>:<cs>:<id>:<file>");
 
 int sandbox_sf_bind_emul(struct sandbox_state *state, int busnum, int cs,
-			 struct udevice *bus, int of_offset, const char *spec)
+			 struct udevice *bus, ofnode node, const char *spec)
 {
 	struct udevice *emul;
 	char name[20], *str;
@@ -570,16 +567,17 @@ int sandbox_sf_bind_emul(struct sandbox_state *state, int busnum, int cs,
 	strncpy(name, spec, sizeof(name) - 6);
 	name[sizeof(name) - 6] = '\0';
 	strcat(name, "-emul");
-	str = strdup(name);
-	if (!str)
-		return -ENOMEM;
 	drv = lists_driver_lookup_name("sandbox_sf_emul");
 	if (!drv) {
 		puts("Cannot find sandbox_sf_emul driver\n");
 		return -ENOENT;
 	}
-	ret = device_bind(bus, drv, str, NULL, of_offset, &emul);
+	str = strdup(name);
+	if (!str)
+		return -ENOMEM;
+	ret = device_bind_ofnode(bus, drv, str, NULL, node, &emul);
 	if (ret) {
+		free(str);
 		printf("Cannot create emul device for spec '%s' (err=%d)\n",
 		       spec, ret);
 		return ret;
@@ -594,7 +592,7 @@ void sandbox_sf_unbind_emul(struct sandbox_state *state, int busnum, int cs)
 	struct udevice *dev;
 
 	dev = state->spi[busnum][cs].emul;
-	device_remove(dev);
+	device_remove(dev, DM_REMOVE_NORMAL);
 	device_unbind(dev);
 	state->spi[busnum][cs].emul = NULL;
 }
@@ -622,7 +620,8 @@ static int sandbox_sf_bind_bus_cs(struct sandbox_state *state, int busnum,
 	if (ret)
 		return ret;
 
-	return sandbox_sf_bind_emul(state, busnum, cs, bus, -1, spec);
+	return sandbox_sf_bind_emul(state, busnum, cs, bus, ofnode_null(),
+				    spec);
 }
 
 int sandbox_spi_get_emul(struct sandbox_state *state,
@@ -640,7 +639,7 @@ int sandbox_spi_get_emul(struct sandbox_state *state,
 		debug("%s: busnum=%u, cs=%u: binding SPI flash emulation: ",
 		      __func__, busnum, cs);
 		ret = sandbox_sf_bind_emul(state, busnum, cs, bus,
-					   slave->of_offset, slave->name);
+					   dev_ofnode(slave), slave->name);
 		if (ret) {
 			debug("failed (err=%d)\n", ret);
 			return ret;

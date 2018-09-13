@@ -1,7 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  * Copyright (c) 2011 The Chromium OS Authors.
- *
- * SPDX-License-Identifier:	GPL-2.0+
  */
 
 /*
@@ -11,6 +10,7 @@
  */
 
 #include <common.h>
+#include <console.h>
 #include <dm.h>
 #include <fdtdec.h>
 #include <lcd.h>
@@ -69,6 +69,9 @@ static int sandbox_serial_probe(struct udevice *dev)
 	if (state->term_raw != STATE_TERM_COOKED)
 		os_tty_raw(0, state->term_raw == STATE_TERM_RAW_WITH_SIGS);
 	priv->start_of_line = 0;
+
+	if (state->term_raw != STATE_TERM_RAW)
+		disable_ctrlc(1);
 
 	return 0;
 }
@@ -140,6 +143,19 @@ static int sandbox_serial_getc(struct udevice *dev)
 	return result;
 }
 
+static int sandbox_serial_setconfig(struct udevice *dev, uint serial_config)
+{
+	u8 parity = SERIAL_GET_PARITY(serial_config);
+	u8 bits = SERIAL_GET_BITS(serial_config);
+	u8 stop = SERIAL_GET_STOP(serial_config);
+
+	if (bits != SERIAL_8_BITS || stop != SERIAL_ONE_STOP ||
+	    parity != SERIAL_PAR_NONE)
+		return -ENOTSUPP; /* not supported in driver*/
+
+	return 0;
+}
+
 static const char * const ansi_colour[] = {
 	"black", "red", "green", "yellow", "blue", "megenta", "cyan",
 	"white",
@@ -152,7 +168,7 @@ static int sandbox_serial_ofdata_to_platdata(struct udevice *dev)
 	int i;
 
 	plat->colour = -1;
-	colour = fdt_getprop(gd->fdt_blob, dev->of_offset,
+	colour = fdt_getprop(gd->fdt_blob, dev_of_offset(dev),
 			     "sandbox,text-colour", NULL);
 	if (colour) {
 		for (i = 0; i < ARRAY_SIZE(ansi_colour); i++) {
@@ -170,6 +186,7 @@ static const struct dm_serial_ops sandbox_serial_ops = {
 	.putc = sandbox_serial_putc,
 	.pending = sandbox_serial_pending,
 	.getc = sandbox_serial_getc,
+	.setconfig = sandbox_serial_setconfig,
 };
 
 static const struct udevice_id sandbox_serial_ids[] = {

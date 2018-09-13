@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  * (C) Copyright 2011 - 2012 Samsung Electronics
  * EXT4 filesystem implementation in Uboot by
@@ -15,14 +16,11 @@
  * Copyright (C) 2003, 2004  Free Software Foundation, Inc.
  *
  * ext4write : Based on generic ext4 protocol.
- *
- * SPDX-License-Identifier:	GPL-2.0+
  */
 
 #include <common.h>
 #include <ext_common.h>
 #include <ext4fs.h>
-#include <inttypes.h>
 #include <malloc.h>
 #include <memalign.h>
 #include <stddef.h>
@@ -211,7 +209,7 @@ void put_ext4(uint64_t off, void *buf, uint32_t size)
 	if ((startblock + (size >> log2blksz)) >
 	    (part_offset + fs->total_sect)) {
 		printf("part_offset is " LBAFU "\n", part_offset);
-		printf("total_sector is %" PRIu64 "\n", fs->total_sect);
+		printf("total_sector is %llu\n", fs->total_sect);
 		printf("error: overflow occurs\n");
 		return;
 	}
@@ -432,6 +430,10 @@ uint16_t ext4fs_checksum_update(uint32_t i)
 		crc = ext2fs_crc16(crc, desc, offset);
 		offset += sizeof(desc->bg_checksum);	/* skip checksum */
 		assert(offset == sizeof(*desc));
+		if (offset < fs->gdsize) {
+			crc = ext2fs_crc16(crc, (__u8 *)desc + offset,
+					   fs->gdsize - offset);
+		}
 	}
 
 	return crc;
@@ -656,6 +658,11 @@ static int search_dir(struct ext2_inode *parent_inode, char *dirname)
 
 		offset = 0;
 		do {
+			if (offset & 3) {
+				printf("Badly aligned ext2_dirent\n");
+				break;
+			}
+
 			dir = (struct ext2_dirent *)(block_buffer + offset);
 			direntname = (char*)(dir) + sizeof(struct ext2_dirent);
 
@@ -854,74 +861,72 @@ fail:
 
 static int unlink_filename(char *filename, unsigned int blknr)
 {
-	int totalbytes = 0;
-	int templength = 0;
-	int status, inodeno;
-	int found = 0;
-	char *root_first_block_buffer = NULL;
+	int status;
+	int inodeno = 0;
+	int offset;
+	char *block_buffer = NULL;
 	struct ext2_dirent *dir = NULL;
-	struct ext2_dirent *previous_dir = NULL;
-	char *ptr = NULL;
+	struct ext2_dirent *previous_dir;
 	struct ext_filesystem *fs = get_fs();
 	int ret = -1;
+	char *direntname;
 
-	/* get the first block of root */
-	root_first_block_buffer = zalloc(fs->blksz);
-	if (!root_first_block_buffer)
+	block_buffer = zalloc(fs->blksz);
+	if (!block_buffer)
 		return -ENOMEM;
+
+	/* read the directory block */
 	status = ext4fs_devread((lbaint_t)blknr * fs->sect_perblk, 0,
-				fs->blksz, root_first_block_buffer);
+				fs->blksz, block_buffer);
 	if (status == 0)
 		goto fail;
 
-	if (ext4fs_log_journal(root_first_block_buffer, blknr))
-		goto fail;
-	dir = (struct ext2_dirent *)root_first_block_buffer;
-	ptr = (char *)dir;
-	totalbytes = 0;
-	while (le16_to_cpu(dir->direntlen) >= 0) {
-		/*
-		 * blocksize-totalbytes because last
-		 * directory length i.e., *dir->direntlen
-		 * is free availble space in the block that
-		 * means it is a last entry of directory entry
-		 */
-		if (dir->inode && (strlen(filename) == dir->namelen) &&
-		    (strncmp(ptr + sizeof(struct ext2_dirent),
-			     filename, dir->namelen) == 0)) {
-			printf("file found, deleting\n");
-			inodeno = le32_to_cpu(dir->inode);
-			if (previous_dir) {
-				uint16_t new_len;
-				new_len = le16_to_cpu(previous_dir->direntlen);
-				new_len += le16_to_cpu(dir->direntlen);
-				previous_dir->direntlen = cpu_to_le16(new_len);
-			} else {
-				dir->inode = 0;
-			}
-			found = 1;
+	offset = 0;
+	do {
+		if (offset & 3) {
+			printf("Badly aligned ext2_dirent\n");
 			break;
 		}
 
-		if (fs->blksz - totalbytes == le16_to_cpu(dir->direntlen))
+		previous_dir = dir;
+		dir = (struct ext2_dirent *)(block_buffer + offset);
+		direntname = (char *)(dir) + sizeof(struct ext2_dirent);
+
+		int direntlen = le16_to_cpu(dir->direntlen);
+		if (direntlen < sizeof(struct ext2_dirent))
 			break;
 
-		/* traversing the each directory entry */
-		templength = le16_to_cpu(dir->direntlen);
-		totalbytes = totalbytes + templength;
-		previous_dir = dir;
-		dir = (struct ext2_dirent *)((char *)dir + templength);
-		ptr = (char *)dir;
-	}
+		if (dir->inode && (strlen(filename) == dir->namelen) &&
+		    (strncmp(direntname, filename, dir->namelen) == 0)) {
+			inodeno = le32_to_cpu(dir->inode);
+			break;
+		}
 
+		offset += direntlen;
 
-	if (found == 1) {
-		if (ext4fs_put_metadata(root_first_block_buffer, blknr))
+	} while (offset < fs->blksz);
+
+	if (inodeno > 0) {
+		printf("file found, deleting\n");
+		if (ext4fs_log_journal(block_buffer, blknr))
+			goto fail;
+
+		if (previous_dir) {
+			/* merge dir entry with predecessor */
+			uint16_t new_len;
+			new_len = le16_to_cpu(previous_dir->direntlen);
+			new_len += le16_to_cpu(dir->direntlen);
+			previous_dir->direntlen = cpu_to_le16(new_len);
+		} else {
+			/* invalidate dir entry */
+			dir->inode = 0;
+		}
+		if (ext4fs_put_metadata(block_buffer, blknr))
 			goto fail;
 		ret = inodeno;
 	}
 fail:
-	free(root_first_block_buffer);
+	free(block_buffer);
 
 	return ret;
 }
@@ -1624,12 +1629,13 @@ long int read_allocated_block(struct ext2_inode *inode, int fileblock)
 		- get_fs()->dev_desc->log2blksz;
 
 	if (le32_to_cpu(inode->flags) & EXT4_EXTENTS_FL) {
+		long int startblock, endblock;
 		char *buf = zalloc(blksz);
 		if (!buf)
 			return -ENOMEM;
 		struct ext4_extent_header *ext_block;
 		struct ext4_extent *extent;
-		int i = -1;
+		int i;
 		ext_block =
 			ext4fs_get_extent_block(ext4fs_root, buf,
 						(struct ext4_extent_header *)
@@ -1643,28 +1649,26 @@ long int read_allocated_block(struct ext2_inode *inode, int fileblock)
 
 		extent = (struct ext4_extent *)(ext_block + 1);
 
-		do {
-			i++;
-			if (i >= le16_to_cpu(ext_block->eh_entries))
-				break;
-		} while (fileblock >= le32_to_cpu(extent[i].ee_block));
-		if (--i >= 0) {
-			fileblock -= le32_to_cpu(extent[i].ee_block);
-			if (fileblock >= le16_to_cpu(extent[i].ee_len)) {
+		for (i = 0; i < le16_to_cpu(ext_block->eh_entries); i++) {
+			startblock = le32_to_cpu(extent[i].ee_block);
+			endblock = startblock + le16_to_cpu(extent[i].ee_len);
+
+			if (startblock > fileblock) {
+				/* Sparse file */
 				free(buf);
 				return 0;
-			}
 
-			start = le16_to_cpu(extent[i].ee_start_hi);
-			start = (start << 32) +
+			} else if (fileblock < endblock) {
+				start = le16_to_cpu(extent[i].ee_start_hi);
+				start = (start << 32) +
 					le32_to_cpu(extent[i].ee_start_lo);
-			free(buf);
-			return fileblock + start;
+				free(buf);
+				return (fileblock - startblock) + start;
+			}
 		}
 
-		printf("Extent Error\n");
 		free(buf);
-		return -1;
+		return 0;
 	}
 
 	/* Direct blocks. */
@@ -2337,11 +2341,12 @@ int ext4fs_mount(unsigned part_length)
 
 	/* Make sure this is an ext2 filesystem. */
 	if (le16_to_cpu(data->sblock.magic) != EXT2_MAGIC)
-		goto fail;
+		goto fail_noerr;
 
 
 	if (le32_to_cpu(data->sblock.revision_level) == 0) {
 		fs->inodesz = 128;
+		fs->gdsize = 32;
 	} else {
 		debug("EXT4 features COMPAT: %08x INCOMPAT: %08x RO_COMPAT: %08x\n",
 		      __le32_to_cpu(data->sblock.feature_compatibility),
@@ -2372,6 +2377,7 @@ int ext4fs_mount(unsigned part_length)
 	return 1;
 fail:
 	printf("Failed to mount ext2 filesystem...\n");
+fail_noerr:
 	free(data);
 	ext4fs_root = NULL;
 

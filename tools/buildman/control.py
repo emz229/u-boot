@@ -1,6 +1,5 @@
+# SPDX-License-Identifier: GPL-2.0+
 # Copyright (c) 2013 The Chromium OS Authors.
-#
-# SPDX-License-Identifier:	GPL-2.0+
 #
 
 import multiprocessing
@@ -48,9 +47,9 @@ def ShowActions(series, why_selected, boards_selected, builder, options):
     Args:
         series: Series object
         why_selected: Dictionary where each key is a buildman argument
-                provided by the user, and the value is the boards brought
-                in by that argument. For example, 'arm' might bring in
-                400 boards, so in this case the key would be 'arm' and
+                provided by the user, and the value is the list of boards
+                brought in by that argument. For example, 'arm' might bring
+                in 400 boards, so in this case the key would be 'arm' and
                 the value would be a list of board names.
         boards_selected: Dict of selected boards, key is target name,
                 value is Board object
@@ -75,9 +74,33 @@ def ShowActions(series, why_selected, boards_selected, builder, options):
     print
     for arg in why_selected:
         if arg != 'all':
-            print arg, ': %d boards' % why_selected[arg]
+            print arg, ': %d boards' % len(why_selected[arg])
+            if options.verbose:
+                print '   %s' % ' '.join(why_selected[arg])
     print ('Total boards to build for each commit: %d\n' %
-            why_selected['all'])
+            len(why_selected['all']))
+
+def CheckOutputDir(output_dir):
+    """Make sure that the output directory is not within the current directory
+
+    If we try to use an output directory which is within the current directory
+    (which is assumed to hold the U-Boot source) we may end up deleting the
+    U-Boot source code. Detect this and print an error in this case.
+
+    Args:
+        output_dir: Output directory path to check
+    """
+    path = os.path.realpath(output_dir)
+    cwd_path = os.path.realpath('.')
+    while True:
+        if os.path.realpath(path) == cwd_path:
+            Print("Cannot use output directory '%s' since it is within the current directtory '%s'" %
+                  (path, cwd_path))
+            sys.exit(1)
+        parent = os.path.dirname(path)
+        if parent == path:
+            break
+        path = parent
 
 def DoBuildman(options, args, toolchains=None, make_func=None, boards=None,
                clean_dir=False):
@@ -221,9 +244,10 @@ def DoBuildman(options, args, toolchains=None, make_func=None, boards=None,
                     options.git_dir, count, series=None, allow_overwrite=True)
     else:
         series = None
-        options.verbose = True
-        if not options.summary:
-            options.show_errors = True
+        if not options.dry_run:
+            options.verbose = True
+            if not options.summary:
+                options.show_errors = True
 
     # By default we have one thread per CPU. But if there are not enough jobs
     # we can have fewer threads and use a high '-j' value for make.
@@ -249,16 +273,19 @@ def DoBuildman(options, args, toolchains=None, make_func=None, boards=None,
         # output directory itself rather than any subdirectory.
         if not options.no_subdirs:
             output_dir = os.path.join(options.output_dir, dirname)
-    if (clean_dir and output_dir != options.output_dir and
-            os.path.exists(output_dir)):
-        shutil.rmtree(output_dir)
+        if clean_dir and os.path.exists(output_dir):
+            shutil.rmtree(output_dir)
+    CheckOutputDir(output_dir)
     builder = Builder(toolchains, output_dir, options.git_dir,
             options.threads, options.jobs, gnu_make=gnu_make, checkout=True,
             show_unknown=options.show_unknown, step=options.step,
             no_subdirs=options.no_subdirs, full_path=options.full_path,
             verbose_build=options.verbose_build,
             incremental=options.incremental,
-            per_board_out_dir=options.per_board_out_dir,)
+            per_board_out_dir=options.per_board_out_dir,
+            config_only=options.config_only,
+            squash_config_y=not options.preserve_config_y,
+            warnings_as_errors=options.warnings_as_errors)
     builder.force_config_on_failure = not options.quick
     if make_func:
         builder.do_make = make_func
@@ -292,7 +319,8 @@ def DoBuildman(options, args, toolchains=None, make_func=None, boards=None,
         builder.SetDisplayOptions(options.show_errors, options.show_sizes,
                                   options.show_detail, options.show_bloat,
                                   options.list_error_boards,
-                                  options.show_config)
+                                  options.show_config,
+                                  options.show_environment)
         if options.summary:
             builder.ShowSummary(commits, board_selected)
         else:

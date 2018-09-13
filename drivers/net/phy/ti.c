@@ -1,7 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * TI PHY drivers
- *
- * SPDX-License-Identifier:	GPL-2.0
  *
  */
 #include <common.h>
@@ -9,11 +8,9 @@
 #include <linux/compat.h>
 #include <malloc.h>
 
-#include <fdtdec.h>
 #include <dm.h>
 #include <dt-bindings/net/ti-dp83867.h>
 
-DECLARE_GLOBAL_DATA_PTR;
 
 /* TI DP83867 */
 #define DP83867_DEVADDR		0x1f
@@ -25,8 +22,10 @@ DECLARE_GLOBAL_DATA_PTR;
 #define DP83867_CTRL		0x1f
 
 /* Extended Registers */
+#define DP83867_CFG4		0x0031
 #define DP83867_RGMIICTL	0x0032
 #define DP83867_RGMIIDCTL	0x0086
+#define DP83867_IO_MUX_CFG	0x0170
 
 #define DP83867_SW_RESET	BIT(15)
 #define DP83867_SW_RESTART	BIT(14)
@@ -84,10 +83,18 @@ DECLARE_GLOBAL_DATA_PTR;
 #define DEFAULT_TX_ID_DELAY	DP83867_RGMIIDCTL_2_75_NS
 #define DEFAULT_FIFO_DEPTH	DP83867_PHYCR_FIFO_DEPTH_4_B_NIB
 
+/* IO_MUX_CFG bits */
+#define DP83867_IO_MUX_CFG_IO_IMPEDANCE_CTRL	0x1f
+
+#define DP83867_IO_MUX_CFG_IO_IMPEDANCE_MAX	0x0
+#define DP83867_IO_MUX_CFG_IO_IMPEDANCE_MIN	0x1f
+
 struct dp83867_private {
 	int rx_id_delay;
 	int tx_id_delay;
 	int fifo_depth;
+	int io_impedance;
+	bool rxctrl_strap_quirk;
 };
 
 /**
@@ -165,16 +172,31 @@ void phy_write_mmd_indirect(struct phy_device *phydev, int prtad,
 static int dp83867_of_init(struct phy_device *phydev)
 {
 	struct dp83867_private *dp83867 = phydev->priv;
-	struct udevice *dev = phydev->dev;
+	ofnode node;
 
-	dp83867->rx_id_delay = fdtdec_get_uint(gd->fdt_blob, dev->of_offset,
-				 "ti,rx-internal-delay", -1);
+	node = phy_get_ofnode(phydev);
+	if (!ofnode_valid(node))
+		return -EINVAL;
 
-	dp83867->tx_id_delay = fdtdec_get_uint(gd->fdt_blob, dev->of_offset,
-				 "ti,tx-internal-delay", -1);
+	if (ofnode_read_bool(node, "ti,max-output-impedance"))
+		dp83867->io_impedance = DP83867_IO_MUX_CFG_IO_IMPEDANCE_MAX;
+	else if (ofnode_read_bool(node, "ti,min-output-impedance"))
+		dp83867->io_impedance = DP83867_IO_MUX_CFG_IO_IMPEDANCE_MIN;
+	else
+		dp83867->io_impedance = -EINVAL;
 
-	dp83867->fifo_depth = fdtdec_get_uint(gd->fdt_blob, dev->of_offset,
-				 "ti,fifo-depth", -1);
+	if (ofnode_read_bool(node, "ti,dp83867-rxctrl-strap-quirk"))
+		dp83867->rxctrl_strap_quirk = true;
+	dp83867->rx_id_delay = ofnode_read_u32_default(node,
+						       "ti,rx-internal-delay",
+						       -1);
+
+	dp83867->tx_id_delay = ofnode_read_u32_default(node,
+						       "ti,tx-internal-delay",
+						       -1);
+
+	dp83867->fifo_depth = ofnode_read_u32_default(node, "ti,fifo-depth",
+						      -1);
 
 	return 0;
 }
@@ -186,6 +208,7 @@ static int dp83867_of_init(struct phy_device *phydev)
 	dp83867->rx_id_delay = DEFAULT_RX_ID_DELAY;
 	dp83867->tx_id_delay = DEFAULT_TX_ID_DELAY;
 	dp83867->fifo_depth = DEFAULT_FIFO_DEPTH;
+	dp83867->io_impedance = -EINVAL;
 
 	return 0;
 }
@@ -214,6 +237,15 @@ static int dp83867_config(struct phy_device *phydev)
 	val = phy_read(phydev, MDIO_DEVAD_NONE, DP83867_CTRL);
 	phy_write(phydev, MDIO_DEVAD_NONE, DP83867_CTRL,
 		  val | DP83867_SW_RESTART);
+
+	/* Mode 1 or 2 workaround */
+	if (dp83867->rxctrl_strap_quirk) {
+		val = phy_read_mmd_indirect(phydev, DP83867_CFG4,
+					    DP83867_DEVADDR, phydev->addr);
+		val &= ~BIT(7);
+		phy_write_mmd_indirect(phydev, DP83867_CFG4,
+				       DP83867_DEVADDR, phydev->addr, val);
+	}
 
 	if (phy_interface_is_rgmii(phydev)) {
 		ret = phy_write(phydev, MDIO_DEVAD_NONE, MII_DP83867_PHYCTRL,
@@ -246,8 +278,7 @@ static int dp83867_config(struct phy_device *phydev)
 		phy_write(phydev, MDIO_DEVAD_NONE, MII_DP83867_BISCR, 0x0);
 	}
 
-	if ((phydev->interface >= PHY_INTERFACE_MODE_RGMII_ID) &&
-	    (phydev->interface <= PHY_INTERFACE_MODE_RGMII_RXID)) {
+	if (phy_interface_is_rgmii(phydev)) {
 		val = phy_read_mmd_indirect(phydev, DP83867_RGMIICTL,
 					    DP83867_DEVADDR, phydev->addr);
 
@@ -269,6 +300,19 @@ static int dp83867_config(struct phy_device *phydev)
 
 		phy_write_mmd_indirect(phydev, DP83867_RGMIIDCTL,
 				       DP83867_DEVADDR, phydev->addr, delay);
+
+		if (dp83867->io_impedance >= 0) {
+			val = phy_read_mmd_indirect(phydev,
+						    DP83867_IO_MUX_CFG,
+						    DP83867_DEVADDR,
+						    phydev->addr);
+			val &= ~DP83867_IO_MUX_CFG_IO_IMPEDANCE_CTRL;
+			val |= dp83867->io_impedance &
+			       DP83867_IO_MUX_CFG_IO_IMPEDANCE_CTRL;
+			phy_write_mmd_indirect(phydev, DP83867_IO_MUX_CFG,
+					       DP83867_DEVADDR, phydev->addr,
+					       val);
+		}
 	}
 
 	genphy_config_aneg(phydev);

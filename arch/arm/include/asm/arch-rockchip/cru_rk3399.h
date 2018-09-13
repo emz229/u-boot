@@ -1,13 +1,21 @@
+/* SPDX-License-Identifier: GPL-2.0+ */
 /*
  * (C) Copyright 2016 Rockchip Electronics Co., Ltd
- *
- * SPDX-License-Identifier:     GPL-2.0+
  */
 
 #ifndef __ASM_ARCH_CRU_RK3399_H_
 #define __ASM_ARCH_CRU_RK3399_H_
 
 #include <common.h>
+
+/* Private data for the clock driver - used by rockchip_get_cru() */
+struct rk3399_clk_priv {
+	struct rk3399_cru *cru;
+};
+
+struct rk3399_pmuclk_priv {
+	struct rk3399_pmucru *pmucru;
+};
 
 struct rk3399_pmucru {
 	u32 ppll_con[6];

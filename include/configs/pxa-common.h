@@ -1,9 +1,8 @@
+/* SPDX-License-Identifier: GPL-2.0+ */
 /*
  * Toradex Colibri PXA270 configuration file
  *
  * Copyright (C) 2010 Marek Vasut <marek.vasut@gmail.com>
- *
- * SPDX-License-Identifier:	GPL-2.0+
  */
 
 #ifndef	__CONFIG_PXA_COMMON_H__
@@ -22,10 +21,7 @@
  * MMC Card Configuration
  */
 #ifdef	CONFIG_CMD_MMC
-#define	CONFIG_MMC
-#define	CONFIG_GENERIC_MMC
 #define	CONFIG_PXA_MMC_GENERIC
-#define	CONFIG_DOS_PARTITION
 #endif
 
 /*

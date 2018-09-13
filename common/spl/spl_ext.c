@@ -1,6 +1,4 @@
-/*
- * SPDX-License-Identifier:	GPL-2.0+
- */
+// SPDX-License-Identifier: GPL-2.0+
 
 #include <common.h>
 #include <spl.h>
@@ -9,7 +7,6 @@
 #include <errno.h>
 #include <image.h>
 
-#ifdef CONFIG_SPL_EXT_SUPPORT
 int spl_load_image_ext(struct spl_image_info *spl_image,
 		       struct blk_desc *block_dev, int partition,
 		       const char *filename)
@@ -42,7 +39,7 @@ int spl_load_image_ext(struct spl_image_info *spl_image,
 		puts("spl: ext4fs_open failed\n");
 		goto end;
 	}
-	err = ext4fs_read((char *)header, sizeof(struct image_header), &actlen);
+	err = ext4fs_read((char *)header, 0, sizeof(struct image_header), &actlen);
 	if (err < 0) {
 		puts("spl: ext4fs_read failed\n");
 		goto end;
@@ -54,7 +51,7 @@ int spl_load_image_ext(struct spl_image_info *spl_image,
 		goto end;
 	}
 
-	err = ext4fs_read((char *)spl_image->load_addr, filelen, &actlen);
+	err = ext4fs_read((char *)spl_image->load_addr, 0, filelen, &actlen);
 
 end:
 #ifdef CONFIG_SPL_LIBCOMMON_SUPPORT
@@ -90,20 +87,20 @@ int spl_load_image_ext_os(struct spl_image_info *spl_image,
 		return -1;
 	}
 #if defined(CONFIG_SPL_ENV_SUPPORT)
-	file = getenv("falcon_args_file");
+	file = env_get("falcon_args_file");
 	if (file) {
 		err = ext4fs_open(file, &filelen);
 		if (err < 0) {
 			puts("spl: ext4fs_open failed\n");
 			goto defaults;
 		}
-		err = ext4fs_read((void *)CONFIG_SYS_SPL_ARGS_ADDR, filelen, &actlen);
+		err = ext4fs_read((void *)CONFIG_SYS_SPL_ARGS_ADDR, 0, filelen, &actlen);
 		if (err < 0) {
 			printf("spl: error reading image %s, err - %d, falling back to default\n",
 			       file, err);
 			goto defaults;
 		}
-		file = getenv("falcon_image_file");
+		file = env_get("falcon_image_file");
 		if (file) {
 			err = spl_load_image_ext(spl_image, block_dev,
 						 partition, file);
@@ -127,7 +124,7 @@ defaults:
 	if (err < 0)
 		puts("spl: ext4fs_open failed\n");
 
-	err = ext4fs_read((void *)CONFIG_SYS_SPL_ARGS_ADDR, filelen, &actlen);
+	err = ext4fs_read((void *)CONFIG_SYS_SPL_ARGS_ADDR, 0, filelen, &actlen);
 	if (err < 0) {
 #ifdef CONFIG_SPL_LIBCOMMON_SUPPORT
 		printf("%s: error reading image %s, err - %d\n",
@@ -145,5 +142,4 @@ int spl_load_image_ext_os(struct spl_image_info *spl_image,
 {
 	return -ENOSYS;
 }
-#endif
 #endif

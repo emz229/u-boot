@@ -1,7 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  * (C) Copyright 2015 Google, Inc
- *
- * SPDX-License-Identifier:     GPL-2.0+
  */
 
 #include <common.h>
@@ -11,54 +10,141 @@
 #include <syscon.h>
 #include <asm/io.h>
 #include <asm/arch/clock.h>
+#include <asm/arch/cru_rk3288.h>
 #include <asm/arch/periph.h>
 #include <asm/arch/pmu_rk3288.h>
+#include <asm/arch/qos_rk3288.h>
 #include <asm/arch/boot_mode.h>
 #include <asm/gpio.h>
 #include <dm/pinctrl.h>
+#include <dt-bindings/clock/rk3288-cru.h>
+#include <power/regulator.h>
 
 DECLARE_GLOBAL_DATA_PTR;
-
-#define PMU_BASE	0xff730000
-
-static void setup_boot_mode(void)
-{
-	struct rk3288_pmu *const pmu = (void *)PMU_BASE;
-	int boot_mode = readl(&pmu->sys_reg[0]);
-
-	debug("boot mode %x.\n", boot_mode);
-
-	/* Clear boot mode */
-	writel(BOOT_NORMAL, &pmu->sys_reg[0]);
-
-	switch (boot_mode) {
-	case BOOT_FASTBOOT:
-		printf("enter fastboot!\n");
-		setenv("preboot", "setenv preboot; fastboot usb0");
-		break;
-	case BOOT_UMS:
-		printf("enter UMS!\n");
-		setenv("preboot", "setenv preboot; if mmc dev 0;"
-		       "then ums mmc 0; else ums mmc 1;fi");
-		break;
-	}
-}
 
 __weak int rk_board_late_init(void)
 {
 	return 0;
 }
 
+int rk3288_qos_init(void)
+{
+	int val = 2 << PRIORITY_HIGH_SHIFT | 2 << PRIORITY_LOW_SHIFT;
+	/* set vop qos to higher priority */
+	writel(val, CPU_AXI_QOS_PRIORITY + VIO0_VOP_QOS);
+	writel(val, CPU_AXI_QOS_PRIORITY + VIO1_VOP_QOS);
+
+	if (!fdt_node_check_compatible(gd->fdt_blob, 0,
+				       "rockchip,rk3288-tinker"))
+	{
+		/* set isp qos to higher priority */
+		writel(val, CPU_AXI_QOS_PRIORITY + VIO1_ISP_R_QOS);
+		writel(val, CPU_AXI_QOS_PRIORITY + VIO1_ISP_W0_QOS);
+		writel(val, CPU_AXI_QOS_PRIORITY + VIO1_ISP_W1_QOS);
+	}
+	return 0;
+}
+
+static void rk3288_detect_reset_reason(void)
+{
+	struct rk3288_cru *cru = rockchip_get_cru();
+	const char *reason;
+
+	if (IS_ERR(cru))
+		return;
+
+	switch (cru->cru_glb_rst_st) {
+	case GLB_POR_RST:
+		reason = "POR";
+		break;
+	case FST_GLB_RST_ST:
+	case SND_GLB_RST_ST:
+		reason = "RST";
+		break;
+	case FST_GLB_TSADC_RST_ST:
+	case SND_GLB_TSADC_RST_ST:
+		reason = "THERMAL";
+		break;
+	case FST_GLB_WDT_RST_ST:
+	case SND_GLB_WDT_RST_ST:
+		reason = "WDOG";
+		break;
+	default:
+		reason = "unknown reset";
+	}
+
+	env_set("reset_reason", reason);
+
+	/*
+	 * Clear cru_glb_rst_st, so we can determine the last reset cause
+	 * for following resets.
+	 */
+	rk_clrreg(&cru->cru_glb_rst_st, GLB_RST_ST_MASK);
+}
+
 int board_late_init(void)
 {
 	setup_boot_mode();
+	rk3288_qos_init();
+	rk3288_detect_reset_reason();
 
 	return rk_board_late_init();
 }
 
+#if !CONFIG_IS_ENABLED(ROCKCHIP_BACK_TO_BROM)
+static int veyron_init(void)
+{
+	struct udevice *dev;
+	struct clk clk;
+	int ret;
+
+	ret = regulator_get_by_platname("vdd_arm", &dev);
+	if (ret) {
+		debug("Cannot set regulator name\n");
+		return ret;
+	}
+
+	/* Slowly raise to max CPU voltage to prevent overshoot */
+	ret = regulator_set_value(dev, 1200000);
+	if (ret)
+		return ret;
+	udelay(175); /* Must wait for voltage to stabilize, 2mV/us */
+	ret = regulator_set_value(dev, 1400000);
+	if (ret)
+		return ret;
+	udelay(100); /* Must wait for voltage to stabilize, 2mV/us */
+
+	ret = rockchip_get_clk(&clk.dev);
+	if (ret)
+		return ret;
+	clk.id = PLL_APLL;
+	ret = clk_set_rate(&clk, 1800000000);
+	if (IS_ERR_VALUE(ret))
+		return ret;
+
+	ret = regulator_get_by_platname("vcc33_sd", &dev);
+	if (ret) {
+		debug("Cannot get regulator name\n");
+		return ret;
+	}
+
+	ret = regulator_set_value(dev, 3300000);
+	if (ret)
+		return ret;
+
+	ret = regulators_enable_boot_on(false);
+	if (ret) {
+		debug("%s: Cannot enable boot on regulators\n", __func__);
+		return ret;
+	}
+
+	return 0;
+}
+#endif
+
 int board_init(void)
 {
-#ifdef CONFIG_ROCKCHIP_SPL_BACK_TO_BROM
+#if CONFIG_IS_ENABLED(ROCKCHIP_BACK_TO_BROM)
 	struct udevice *pinctrl;
 	int ret;
 
@@ -87,30 +173,17 @@ err:
 
 	return -1;
 #else
-	return 0;
-#endif
-}
-
-int dram_init(void)
-{
-	struct ram_info ram;
-	struct udevice *dev;
 	int ret;
 
-	ret = uclass_get_device(UCLASS_RAM, 0, &dev);
-	if (ret) {
-		debug("DRAM init failed: %d\n", ret);
-		return ret;
+	/* We do some SoC one time setting here */
+	if (!fdt_node_check_compatible(gd->fdt_blob, 0, "google,veyron")) {
+		ret = veyron_init();
+		if (ret)
+			return ret;
 	}
-	ret = ram_get_info(dev, &ram);
-	if (ret) {
-		debug("Cannot get DRAM size: %d\n", ret);
-		return ret;
-	}
-	debug("SDRAM base=%lx, size=%x\n", ram.base, ram.size);
-	gd->ram_size = ram.size;
 
 	return 0;
+#endif
 }
 
 #ifndef CONFIG_SYS_DCACHE_OFF
@@ -243,3 +316,44 @@ U_BOOT_CMD(
 	"display information about clocks",
 	""
 );
+
+int board_early_init_f(void)
+{
+	const uintptr_t GRF_SOC_CON0 = 0xff770244;
+	const uintptr_t GRF_SOC_CON2 = 0xff77024c;
+	struct udevice *pinctrl;
+	struct udevice *dev;
+	int ret;
+
+	/*
+	 * This init is done in SPL, but when chain-loading U-Boot SPL will
+	 * have been skipped. Allow the clock driver to check if it needs
+	 * setting up.
+	 */
+	ret = rockchip_get_clk(&dev);
+	if (ret) {
+		debug("CLK init failed: %d\n", ret);
+		return ret;
+	}
+	ret = uclass_get_device(UCLASS_PINCTRL, 0, &pinctrl);
+	if (ret) {
+		debug("%s: Cannot find pinctrl device\n", __func__);
+		return ret;
+	}
+
+	/* Enable debug UART */
+	ret = pinctrl_request_noflags(pinctrl, PERIPH_ID_UART_DBG);
+	if (ret) {
+		debug("%s: Failed to set up console UART\n", __func__);
+		return ret;
+	}
+	rk_setreg(GRF_SOC_CON2, 1 << 0);
+
+	/*
+	 * Disable JTAG on sdmmc0 IO. The SDMMC won't work until this bit is
+	 * cleared
+	 */
+	rk_clrreg(GRF_SOC_CON0, 1 << 12);
+
+	return 0;
+}

@@ -26,12 +26,8 @@ extern struct serial_device serial_smc_device;
 extern struct serial_device serial_scc_device;
 extern struct serial_device *default_serial_console(void);
 
-#if	defined(CONFIG_405GP) || \
-	defined(CONFIG_405EP) || defined(CONFIG_405EZ) || \
-	defined(CONFIG_405EX) || defined(CONFIG_440) || \
-	defined(CONFIG_MPC5xxx) || \
-	defined(CONFIG_MPC83xx) || defined(CONFIG_MPC85xx) || \
-	defined(CONFIG_MPC86xx) || defined(CONFIG_SYS_SC520) || \
+#if	defined(CONFIG_MPC83xx) || defined(CONFIG_MPC85xx) || \
+	defined(CONFIG_MPC86xx) || \
 	defined(CONFIG_TEGRA) || defined(CONFIG_SYS_COREBOOT) || \
 	defined(CONFIG_MICROBLAZE)
 extern struct serial_device serial0_device;
@@ -69,14 +65,51 @@ extern int usbtty_tstc(void);
 
 #endif /* CONFIG_USB_TTY */
 
-#if defined(CONFIG_MPC512X)
-extern struct stdio_dev *open_port(int num, int baudrate);
-extern int close_port(int num);
-extern int write_port(struct stdio_dev *port, char *buf);
-extern int read_port(struct stdio_dev *port, char *buf, int size);
-#endif
-
 struct udevice;
+
+enum serial_par {
+	SERIAL_PAR_NONE,
+	SERIAL_PAR_ODD,
+	SERIAL_PAR_EVEN
+};
+
+#define SERIAL_PAR_SHIFT	0
+#define SERIAL_PAR_MASK		(0x03 << SERIAL_PAR_SHIFT)
+#define SERIAL_GET_PARITY(config) \
+	((config & SERIAL_PAR_MASK) >> SERIAL_PAR_SHIFT)
+
+enum serial_bits {
+	SERIAL_5_BITS,
+	SERIAL_6_BITS,
+	SERIAL_7_BITS,
+	SERIAL_8_BITS
+};
+
+#define SERIAL_BITS_SHIFT	2
+#define SERIAL_BITS_MASK	(0x3 << SERIAL_BITS_SHIFT)
+#define SERIAL_GET_BITS(config) \
+	((config & SERIAL_BITS_MASK) >> SERIAL_BITS_SHIFT)
+
+enum serial_stop {
+	SERIAL_HALF_STOP,	/* 0.5 stop bit */
+	SERIAL_ONE_STOP,	/*   1 stop bit */
+	SERIAL_ONE_HALF_STOP,	/* 1.5 stop bit */
+	SERIAL_TWO_STOP		/*   2 stop bit */
+};
+
+#define SERIAL_STOP_SHIFT	4
+#define SERIAL_STOP_MASK	(0x3 << SERIAL_STOP_SHIFT)
+#define SERIAL_GET_STOP(config) \
+	((config & SERIAL_STOP_MASK) >> SERIAL_STOP_SHIFT)
+
+#define SERIAL_CONFIG(par, bits, stop) \
+		     (par << SERIAL_PAR_SHIFT | \
+		      bits << SERIAL_BITS_SHIFT | \
+		      stop << SERIAL_STOP_SHIFT)
+
+#define SERIAL_DEFAULT_CONFIG	SERIAL_PAR_NONE << SERIAL_PAR_SHIFT | \
+				SERIAL_8_BITS << SERIAL_BITS_SHIFT | \
+				SERIAL_ONE_STOP << SERIAL_STOP_SHIFT
 
 /**
  * struct struct dm_serial_ops - Driver model serial operations
@@ -154,64 +187,50 @@ struct dm_serial_ops {
 	 */
 	int (*loop)(struct udevice *dev, int on);
 #endif
+
+	/**
+	 * setconfig() - Set up the uart configuration
+	 * (parity, 5/6/7/8 bits word length, stop bits)
+	 *
+	 * Set up a new config for this device.
+	 *
+	 * @dev: Device pointer
+	 * @parity: parity to use
+	 * @bits: bits number to use
+	 * @stop: stop bits number to use
+	 * @return 0 if OK, -ve on error
+	 */
+	int (*setconfig)(struct udevice *dev, uint serial_config);
 };
 
 /**
  * struct serial_dev_priv - information about a device used by the uclass
  *
- * @sdev: stdio device attached to this uart
+ * @sdev:	stdio device attached to this uart
+ *
+ * @buf:	Pointer to the RX buffer
+ * @rd_ptr:	Read pointer in the RX buffer
+ * @wr_ptr:	Write pointer in the RX buffer
  */
 struct serial_dev_priv {
 	struct stdio_dev *sdev;
+
+	char *buf;
+	int rd_ptr;
+	int wr_ptr;
 };
 
 /* Access the serial operations for a device */
 #define serial_get_ops(dev)	((struct dm_serial_ops *)(dev)->driver->ops)
 
-void amirix_serial_initialize(void);
-void arc_serial_initialize(void);
-void arm_dcc_initialize(void);
-void asc_serial_initialize(void);
 void atmel_serial_initialize(void);
-void au1x00_serial_initialize(void);
-void bfin_jtag_initialize(void);
-void bfin_serial_initialize(void);
-void bmw_serial_initialize(void);
-void clps7111_serial_initialize(void);
-void cogent_serial_initialize(void);
-void cpci750_serial_initialize(void);
-void evb64260_serial_initialize(void);
-void imx_serial_initialize(void);
-void iop480_serial_initialize(void);
-void jz_serial_initialize(void);
-void leon2_serial_initialize(void);
-void leon3_serial_initialize(void);
-void lh7a40x_serial_initialize(void);
-void lpc32xx_serial_initialize(void);
-void marvell_serial_initialize(void);
-void max3100_serial_initialize(void);
 void mcf_serial_initialize(void);
-void ml2_serial_initialize(void);
-void mpc512x_serial_initialize(void);
-void mpc5xx_serial_initialize(void);
-void mpc8260_scc_serial_initialize(void);
-void mpc8260_smc_serial_initialize(void);
 void mpc85xx_serial_initialize(void);
 void mpc8xx_serial_initialize(void);
 void mxc_serial_initialize(void);
-void mxs_auart_initialize(void);
 void ns16550_serial_initialize(void);
-void oc_serial_initialize(void);
-void p3mx_serial_initialize(void);
 void pl01x_serial_initialize(void);
 void pxa_serial_initialize(void);
-void s3c24xx_serial_initialize(void);
-void s5p_serial_initialize(void);
-void sa1100_serial_initialize(void);
-void sandbox_serial_initialize(void);
-void sconsole_serial_initialize(void);
 void sh_serial_initialize(void);
-void uartlite_serial_initialize(void);
-void zynq_serial_initialize(void);
 
 #endif

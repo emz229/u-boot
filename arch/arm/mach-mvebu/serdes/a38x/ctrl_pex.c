@@ -1,7 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * Copyright (C) Marvell International Ltd. and its affiliates
- *
- * SPDX-License-Identifier:	GPL-2.0
  */
 
 #include <common.h>
@@ -12,6 +11,11 @@
 
 #include "ctrl_pex.h"
 #include "sys_env_lib.h"
+
+__weak void board_pex_config(void)
+{
+	/* nothing in this weak default implementation */
+}
 
 int hws_pex_config(const struct serdes_map *serdes_map, u8 count)
 {
@@ -77,6 +81,9 @@ int hws_pex_config(const struct serdes_map *serdes_map, u8 count)
 
 	/* Support gen1/gen2 */
 	DEBUG_INIT_FULL_S("Support gen1/gen2\n");
+
+	board_pex_config();
+
 	next_busno = 0;
 	mdelay(150);
 

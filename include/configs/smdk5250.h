@@ -1,9 +1,8 @@
+/* SPDX-License-Identifier: GPL-2.0+ */
 /*
  * Copyright (C) 2012 Samsung Electronics
  *
  * Configuration settings for the SAMSUNG SMDK5250 board.
- *
- * SPDX-License-Identifier:	GPL-2.0+
  */
 
 #ifndef __CONFIG_SMDK_H
@@ -13,7 +12,6 @@
 #include <configs/exynos5-dt-common.h>
 #include <configs/exynos5-common.h>
 
-#undef CONFIG_LCD
 #undef CONFIG_EXYNOS_FB
 #undef CONFIG_EXYNOS_DP
 #undef CONFIG_KEYBOARD

@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0+ */
 /*
  * arch/arm/cpu/armv8/rcar_gen3/lowlevel_init.S
  *	This file is lowlevel initialize routine.
@@ -8,8 +9,6 @@
  *
  * (C) Copyright 2013
  * David Feng <fenghua@phytium.com.cn>
- *
- * SPDX-License-Identifier:	GPL-2.0+
  */
 
 #include <asm-offsets.h>
@@ -61,11 +60,18 @@ ENTRY(lowlevel_init)
 	/*
 	 * All slaves will enter EL2 and optionally EL1.
 	 */
+	adr	x4, lowlevel_in_el2
+	ldr	x5, =ES_TO_AARCH64
 	bl	armv8_switch_to_el2
-#ifdef CONFIG_ARMV8_SWITCH_TO_EL1
-	bl	armv8_switch_to_el1
-#endif
 
+lowlevel_in_el2:
+#ifdef CONFIG_ARMV8_SWITCH_TO_EL1
+	adr	x4, lowlevel_in_el1
+	ldr	x5, =ES_TO_AARCH64
+	bl	armv8_switch_to_el1
+
+lowlevel_in_el1:
+#endif
 #endif /* CONFIG_ARMV8_MULTIENTRY */
 
 	bl      s_init

@@ -1,7 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  * Copyright (C) 2014 Google, Inc
- *
- * SPDX-License-Identifier:	GPL-2.0+
  */
 #include <common.h>
 #include <dm.h>
@@ -18,6 +17,8 @@
 #include <asm/arch/model_206ax.h>
 #include <asm/arch/pch.h>
 #include <asm/arch/sandybridge.h>
+
+DECLARE_GLOBAL_DATA_PTR;
 
 #define GPIO_BASE	0x48
 #define BIOS_CTRL	0xdc

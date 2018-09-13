@@ -1,7 +1,5 @@
-#
+# SPDX-License-Identifier: GPL-2.0+
 # Copyright (c) 2014 Google, Inc
-#
-# SPDX-License-Identifier:      GPL-2.0+
 #
 
 from optparse import OptionParser
@@ -28,8 +26,12 @@ def ParseArgs():
     parser.add_option('-d', '--detail', dest='show_detail',
           action='store_true', default=False,
           help='Show detailed information for each board in summary')
+    parser.add_option('-D', '--config-only', action='store_true', default=False,
+          help="Don't build, just configure each commit")
     parser.add_option('-e', '--show_errors', action='store_true',
           default=False, help='Show errors and warnings')
+    parser.add_option('-E', '--warnings-as-errors', action='store_true',
+          default=False, help='Treat all compiler warnings as errors')
     parser.add_option('-f', '--force-build', dest='force_build',
           action='store_true', default=False,
           help='Force build of boards even if already built')
@@ -57,6 +59,8 @@ def ParseArgs():
           default=False, help='Keep all build output files (e.g. binaries)')
     parser.add_option('-K', '--show-config', action='store_true',
           default=False, help='Show configuration changes in summary (both board config files and Kconfig)')
+    parser.add_option('--preserve-config-y', action='store_true',
+          default=False, help="Don't convert y to 1 in configs")
     parser.add_option('-l', '--list-error-boards', action='store_true',
           default=False, help='Show a list of boards next to each error/warning')
     parser.add_option('--list-tool-chains', action='store_true', default=False,
@@ -78,6 +82,8 @@ def ParseArgs():
           default=False, help='Show a build summary')
     parser.add_option('-S', '--show-sizes', action='store_true',
           default=False, help='Show image size variation in summary')
+    parser.add_option('--skip-net-tests', action='store_true', default=False,
+                      help='Skip tests which need the network')
     parser.add_option('--step', type='int',
           default=1, help='Only build every n commits (0=just first and last)')
     parser.add_option('-t', '--test', action='store_true', dest='test',
@@ -86,6 +92,8 @@ def ParseArgs():
           default=None, help='Number of builder threads to use')
     parser.add_option('-u', '--show_unknown', action='store_true',
           default=False, help='Show boards with unknown build result')
+    parser.add_option('-U', '--show-environment', action='store_true',
+          default=False, help='Show environment changes in summary')
     parser.add_option('-v', '--verbose', action='store_true',
           default=False, help='Show build results while the build progresses')
     parser.add_option('-V', '--verbose-build', action='store_true',

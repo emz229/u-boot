@@ -1,8 +1,7 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  * (C) Copyright 2011
  * Ilya Yanok, EmCraft Systems
- *
- * SPDX-License-Identifier:	GPL-2.0+
  */
 #include <linux/types.h>
 #include <common.h>
@@ -63,6 +62,29 @@ void flush_dcache_all(void)
 
 __weak void l2_cache_disable(void) {}
 
-#if defined CONFIG_SYS_THUMB_BUILD
+#if CONFIG_IS_ENABLED(SYS_THUMB_BUILD)
 __weak void invalidate_l2_cache(void) {}
 #endif
+
+#ifndef CONFIG_SYS_ICACHE_OFF
+/* Invalidate entire I-cache and branch predictor array */
+void invalidate_icache_all(void)
+{
+	unsigned long i = 0;
+
+	asm ("mcr p15, 0, %0, c7, c5, 0" : : "r" (i));
+}
+#else
+void invalidate_icache_all(void) {}
+#endif
+
+void enable_caches(void)
+{
+#ifndef CONFIG_SYS_ICACHE_OFF
+	icache_enable();
+#endif
+#ifndef CONFIG_SYS_DCACHE_OFF
+	dcache_enable();
+#endif
+}
+

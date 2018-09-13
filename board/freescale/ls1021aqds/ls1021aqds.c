@@ -1,7 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  * Copyright 2014 Freescale Semiconductor, Inc.
- *
- * SPDX-License-Identifier:	GPL-2.0+
  */
 
 #include <common.h>
@@ -22,7 +21,7 @@
 #include <spl.h>
 #include <fsl_devdis.h>
 #include <fsl_validate.h>
-
+#include <fsl_ddr.h>
 #include "../common/sleep.h"
 #include "../common/qixis.h"
 #include "ls1021aqds_qixis.h"
@@ -38,8 +37,6 @@
 
 #define SET_SDHC_MUX_SEL(reg, value)	((reg & 0x0f) | value)
 #define SET_EC_MUX_SEL(reg, value)	((reg & 0xf0) | value)
-DECLARE_GLOBAL_DATA_PTR;
-
 enum {
 	MUX_TYPE_CAN,
 	MUX_TYPE_IIC2,
@@ -162,9 +159,7 @@ int dram_init(void)
 	 * before accessing DDR SPD.
 	 */
 	select_i2c_ch_pca9547(I2C_MUX_CH_DEFAULT);
-	gd->ram_size = initdram(0);
-
-	return 0;
+	return fsl_initdram();
 }
 
 #ifdef CONFIG_FSL_ESDHC
@@ -206,7 +201,8 @@ int board_early_init_f(void)
 #ifdef CONFIG_SPL_BUILD
 void board_init_f(ulong dummy)
 {
-	struct ccsr_cci400 *cci = (struct ccsr_cci400 *)CONFIG_SYS_CCI400_ADDR;
+	struct ccsr_cci400 *cci = (struct ccsr_cci400 *)(CONFIG_SYS_IMMR +
+					CONFIG_SYS_CCI400_OFFSET);
 	unsigned int major;
 
 #ifdef CONFIG_NAND_BOOT
@@ -427,13 +423,16 @@ int misc_init_r(void)
 
 int board_init(void)
 {
-	struct ccsr_cci400 *cci = (struct ccsr_cci400 *)CONFIG_SYS_CCI400_ADDR;
+	struct ccsr_cci400 *cci = (struct ccsr_cci400 *)(CONFIG_SYS_IMMR +
+					CONFIG_SYS_CCI400_OFFSET);
 	unsigned int major;
 
 #ifdef CONFIG_SYS_FSL_ERRATUM_A010315
 	erratum_a010315();
 #endif
-
+#ifdef CONFIG_SYS_FSL_ERRATUM_A009942
+	erratum_a009942_check_cpo();
+#endif
 	major = get_soc_major_rev();
 	if (major == SOC_MAJOR_VER_1_0) {
 		/* Set CCI-400 control override register to
@@ -460,7 +459,8 @@ int board_init(void)
 #if defined(CONFIG_DEEP_SLEEP)
 void board_sleep_prepare(void)
 {
-	struct ccsr_cci400 __iomem *cci = (void *)CONFIG_SYS_CCI400_ADDR;
+	struct ccsr_cci400 __iomem *cci = (void *)(CONFIG_SYS_IMMR +
+						CONFIG_SYS_CCI400_OFFSET);
 	unsigned int major;
 
 	major = get_soc_major_rev();

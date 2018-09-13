@@ -1,7 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  * Copyright 2013 Freescale Semiconductor, Inc.
- *
- * SPDX-License-Identifier:	GPL-2.0+
  */
 
 #include <common.h>
@@ -258,8 +257,7 @@ int dram_init(void)
 		.wldqsen           = 25,
 	};
 
-	ddrmc_ctrl_init_ddr3(&pcm052_ddr_timings, pcm052_cr_settings,
-			     pcm052_phy_settings, 1, 2);
+    const int row_diff = 2;
 
 #elif defined(CONFIG_TARGET_BK4R1)
 
@@ -314,8 +312,7 @@ int dram_init(void)
 		.wldqsen           = 25,
 	};
 
-	ddrmc_ctrl_init_ddr3(&pcm052_ddr_timings, pcm052_cr_settings,
-			     pcm052_phy_settings, 1, 1);
+    const int row_diff = 1;
 
 #else /* Unknown PCM052 variant */
 
@@ -324,6 +321,9 @@ int dram_init(void)
 #endif
 
 	imx_iomux_v3_setup_multiple_pads(pcm052_pads, ARRAY_SIZE(pcm052_pads));
+
+	ddrmc_ctrl_init_ddr3(&pcm052_ddr_timings, pcm052_cr_settings,
+			     pcm052_phy_settings, 1, row_diff);
 
 	gd->ram_size = get_ram_size((void *)PHYS_SDRAM, PHYS_SDRAM_SIZE);
 

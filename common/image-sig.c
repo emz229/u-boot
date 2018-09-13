@@ -1,7 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  * Copyright (c) 2013, Google Inc.
- *
- * SPDX-License-Identifier:	GPL-2.0+
  */
 
 #ifdef USE_HOSTCC
@@ -32,70 +31,76 @@ void *image_get_host_blob(void)
 
 struct checksum_algo checksum_algos[] = {
 	{
-		"sha1",
-		SHA1_SUM_LEN,
-		RSA2048_BYTES,
+		.name = "sha1",
+		.checksum_len = SHA1_SUM_LEN,
+		.der_len = SHA1_DER_LEN,
+		.der_prefix = sha1_der_prefix,
 #if IMAGE_ENABLE_SIGN
-		EVP_sha1,
+		.calculate_sign = EVP_sha1,
 #endif
-		hash_calculate,
-		padding_sha1_rsa2048,
+		.calculate = hash_calculate,
 	},
 	{
-		"sha256",
-		SHA256_SUM_LEN,
-		RSA2048_BYTES,
+		.name = "sha256",
+		.checksum_len = SHA256_SUM_LEN,
+		.der_len = SHA256_DER_LEN,
+		.der_prefix = sha256_der_prefix,
 #if IMAGE_ENABLE_SIGN
-		EVP_sha256,
+		.calculate_sign = EVP_sha256,
 #endif
-		hash_calculate,
-		padding_sha256_rsa2048,
-	},
-	{
-		"sha256",
-		SHA256_SUM_LEN,
-		RSA4096_BYTES,
-#if IMAGE_ENABLE_SIGN
-		EVP_sha256,
-#endif
-		hash_calculate,
-		padding_sha256_rsa4096,
+		.calculate = hash_calculate,
 	}
 
 };
 
-struct image_sig_algo image_sig_algos[] = {
+struct crypto_algo crypto_algos[] = {
 	{
-		"sha1,rsa2048",
-		rsa_sign,
-		rsa_add_verify_data,
-		rsa_verify,
-		&checksum_algos[0],
+		.name = "rsa2048",
+		.key_len = RSA2048_BYTES,
+		.sign = rsa_sign,
+		.add_verify_data = rsa_add_verify_data,
+		.verify = rsa_verify,
 	},
 	{
-		"sha256,rsa2048",
-		rsa_sign,
-		rsa_add_verify_data,
-		rsa_verify,
-		&checksum_algos[1],
-	},
-	{
-		"sha256,rsa4096",
-		rsa_sign,
-		rsa_add_verify_data,
-		rsa_verify,
-		&checksum_algos[2],
+		.name = "rsa4096",
+		.key_len = RSA4096_BYTES,
+		.sign = rsa_sign,
+		.add_verify_data = rsa_add_verify_data,
+		.verify = rsa_verify,
 	}
 
 };
 
-struct image_sig_algo *image_get_sig_algo(const char *name)
+struct checksum_algo *image_get_checksum_algo(const char *full_name)
 {
 	int i;
+	const char *name;
 
-	for (i = 0; i < ARRAY_SIZE(image_sig_algos); i++) {
-		if (!strcmp(image_sig_algos[i].name, name))
-			return &image_sig_algos[i];
+	for (i = 0; i < ARRAY_SIZE(checksum_algos); i++) {
+		name = checksum_algos[i].name;
+		/* Make sure names match and next char is a comma */
+		if (!strncmp(name, full_name, strlen(name)) &&
+		    full_name[strlen(name)] == ',')
+			return &checksum_algos[i];
+	}
+
+	return NULL;
+}
+
+struct crypto_algo *image_get_crypto_algo(const char *full_name)
+{
+	int i;
+	const char *name;
+
+	/* Move name to after the comma */
+	name = strchr(full_name, ',');
+	if (!name)
+		return NULL;
+	name += 1;
+
+	for (i = 0; i < ARRAY_SIZE(crypto_algos); i++) {
+		if (!strcmp(crypto_algos[i].name, name))
+			return &crypto_algos[i];
 	}
 
 	return NULL;
@@ -151,6 +156,11 @@ static int fit_image_setup_verify(struct image_sign_info *info,
 {
 	char *algo_name;
 
+	if (fdt_totalsize(fit) > CONFIG_FIT_SIGNATURE_MAX_SIZE) {
+		*err_msgp = "Total size too large";
+		return 1;
+	}
+
 	if (fit_image_hash_get_algo(fit, noffset, &algo_name)) {
 		*err_msgp = "Can't get hash algo property";
 		return -1;
@@ -159,12 +169,14 @@ static int fit_image_setup_verify(struct image_sign_info *info,
 	info->keyname = fdt_getprop(fit, noffset, "key-name-hint", NULL);
 	info->fit = (void *)fit;
 	info->node_offset = noffset;
-	info->algo = image_get_sig_algo(algo_name);
+	info->name = algo_name;
+	info->checksum = image_get_checksum_algo(algo_name);
+	info->crypto = image_get_crypto_algo(algo_name);
 	info->fdt_blob = gd_fdt_blob();
 	info->required_keynode = required_keynode;
 	printf("%s:%s", algo_name, info->keyname);
 
-	if (!info->algo) {
+	if (!info->checksum || !info->crypto) {
 		*err_msgp = "Unknown signature algorithm";
 		return -1;
 	}
@@ -194,7 +206,7 @@ int fit_image_check_sig(const void *fit, int noffset, const void *data,
 	region.data = data;
 	region.size = size;
 
-	if (info.algo->verify(&info, &region, 1, fit_value, fit_value_len)) {
+	if (info.crypto->verify(&info, &region, 1, fit_value, fit_value_len)) {
 		*err_msgp = "Verification failed";
 		return -1;
 	}
@@ -339,7 +351,7 @@ int fit_config_check_sig(const void *fit, int noffset, int required_keynode,
 
 	/*
 	 * Each node can generate one region for each sub-node. Allow for
-	 * 7 sub-nodes (hash@1, signature@1, etc.) and some extra.
+	 * 7 sub-nodes (hash-1, signature-1, etc.) and some extra.
 	 */
 	max_regions = 20 + count * 7;
 	struct fdt_region fdt_regions[max_regions];
@@ -365,8 +377,11 @@ int fit_config_check_sig(const void *fit, int noffset, int required_keynode,
 	/* Add the strings */
 	strings = fdt_getprop(fit, noffset, "hashed-strings", NULL);
 	if (strings) {
-		fdt_regions[count].offset = fdt_off_dt_strings(fit) +
-				fdt32_to_cpu(strings[0]);
+		/*
+		 * The strings region offset must be a static 0x0.
+		 * This is set in tool/image-host.c
+		 */
+		fdt_regions[count].offset = fdt_off_dt_strings(fit);
 		fdt_regions[count].size = fdt32_to_cpu(strings[1]);
 		count++;
 	}
@@ -375,8 +390,8 @@ int fit_config_check_sig(const void *fit, int noffset, int required_keynode,
 	struct image_region region[count];
 
 	fit_region_make_list(fit, fdt_regions, count, region);
-	if (info.algo->verify(&info, region, count, fit_value,
-			      fit_value_len)) {
+	if (info.crypto->verify(&info, region, count, fit_value,
+				fit_value_len)) {
 		*err_msgp = "Verification failed";
 		return -1;
 	}

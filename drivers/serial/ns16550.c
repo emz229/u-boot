@@ -8,8 +8,8 @@
 #include <clk.h>
 #include <dm.h>
 #include <errno.h>
-#include <fdtdec.h>
 #include <ns16550.h>
+#include <reset.h>
 #include <serial.h>
 #include <watchdog.h>
 #include <linux/types.h>
@@ -20,9 +20,6 @@ DECLARE_GLOBAL_DATA_PTR;
 #define UART_LCRVAL UART_LCR_8N1		/* 8 data, 1 stop, no parity */
 #define UART_MCRVAL (UART_MCR_DTR | \
 		     UART_MCR_RTS)		/* RTS/DTR */
-#define UART_FCRVAL (UART_FCR_FIFO_EN |	\
-		     UART_FCR_RXSR |	\
-		     UART_FCR_TXSR)		/* Clear & enable FIFOs */
 
 #ifndef CONFIG_DM_SERIAL
 #ifdef CONFIG_SYS_NS16550_PORT_MAPPED
@@ -59,7 +56,7 @@ static inline void serial_out_shift(void *addr, int shift, int value)
 {
 #ifdef CONFIG_SYS_NS16550_PORT_MAPPED
 	outb(value, (ulong)addr);
-#elif defined(CONFIG_SYS_NS16550_MEM32) && !defined(CONFIG_SYS_BIG_ENDIAN)
+#elif defined(CONFIG_SYS_NS16550_MEM32) && defined(CONFIG_SYS_LITTLE_ENDIAN)
 	out_le32(addr, value);
 #elif defined(CONFIG_SYS_NS16550_MEM32) && defined(CONFIG_SYS_BIG_ENDIAN)
 	out_be32(addr, value);
@@ -76,7 +73,7 @@ static inline int serial_in_shift(void *addr, int shift)
 {
 #ifdef CONFIG_SYS_NS16550_PORT_MAPPED
 	return inb((ulong)addr);
-#elif defined(CONFIG_SYS_NS16550_MEM32) && !defined(CONFIG_SYS_BIG_ENDIAN)
+#elif defined(CONFIG_SYS_NS16550_MEM32) && defined(CONFIG_SYS_LITTLE_ENDIAN)
 	return in_le32(addr);
 #elif defined(CONFIG_SYS_NS16550_MEM32) && defined(CONFIG_SYS_BIG_ENDIAN)
 	return in_be32(addr);
@@ -121,6 +118,13 @@ static int ns16550_readb(NS16550_t port, int offset)
 	return serial_in_shift(addr + plat->reg_offset, plat->reg_shift);
 }
 
+static u32 ns16550_getfcr(NS16550_t port)
+{
+	struct ns16550_platdata *plat = port->plat;
+
+	return plat->fcr;
+}
+
 /* We can clean these up once everything is moved to driver model */
 #define serial_out(value, addr)	\
 	ns16550_writeb(com_port, \
@@ -128,6 +132,11 @@ static int ns16550_readb(NS16550_t port, int offset)
 #define serial_in(addr) \
 	ns16550_readb(com_port, \
 		(unsigned char *)addr - (unsigned char *)com_port)
+#else
+static u32 ns16550_getfcr(NS16550_t port)
+{
+	return UART_FCR_DEFVAL;
+}
 #endif
 
 int ns16550_calc_divisor(NS16550_t port, int clock, int baudrate)
@@ -166,21 +175,19 @@ void NS16550_init(NS16550_t com_port, int baud_divisor)
 		;
 
 	serial_out(CONFIG_SYS_NS16550_IER, &com_port->ier);
-#if defined(CONFIG_OMAP) || defined(CONFIG_AM33XX) || \
-			defined(CONFIG_TI81XX) || defined(CONFIG_AM43XX)
+#if defined(CONFIG_ARCH_OMAP2PLUS) || defined(CONFIG_OMAP_SERIAL)
 	serial_out(0x7, &com_port->mdr1);	/* mode select reset TL16C750*/
 #endif
+
 	serial_out(UART_MCRVAL, &com_port->mcr);
-	serial_out(UART_FCRVAL, &com_port->fcr);
+	serial_out(ns16550_getfcr(com_port), &com_port->fcr);
 	if (baud_divisor != -1)
 		NS16550_setbrg(com_port, baud_divisor);
-#if defined(CONFIG_OMAP) || \
-	defined(CONFIG_AM33XX) || defined(CONFIG_SOC_DA8XX) || \
-	defined(CONFIG_TI81XX) || defined(CONFIG_AM43XX)
-
+#if defined(CONFIG_ARCH_OMAP2PLUS) || defined(CONFIG_SOC_DA8XX) || \
+	defined(CONFIG_OMAP_SERIAL)
 	/* /16 is proper to hit 115200 with 48MHz */
 	serial_out(0, &com_port->mdr1);
-#endif /* CONFIG_OMAP */
+#endif
 #if defined(CONFIG_SOC_KEYSTONE)
 	serial_out(UART_REG_VAL_PWREMU_MGMT_UART_ENABLE, &com_port->regC);
 #endif
@@ -192,7 +199,7 @@ void NS16550_reinit(NS16550_t com_port, int baud_divisor)
 	serial_out(CONFIG_SYS_NS16550_IER, &com_port->ier);
 	NS16550_setbrg(com_port, 0);
 	serial_out(UART_MCRVAL, &com_port->mcr);
-	serial_out(UART_FCRVAL, &com_port->fcr);
+	serial_out(ns16550_getfcr(com_port), &com_port->fcr);
 	NS16550_setbrg(com_port, baud_divisor);
 }
 #endif /* CONFIG_NS16550_MIN_FUNCTIONS */
@@ -237,17 +244,6 @@ int NS16550_tstc(NS16550_t com_port)
 
 #include <debug_uart.h>
 
-#define serial_dout(reg, value)	\
-	serial_out_shift((char *)com_port + \
-		((char *)reg - (char *)com_port) * \
-			(1 << CONFIG_DEBUG_UART_SHIFT), \
-		CONFIG_DEBUG_UART_SHIFT, value)
-#define serial_din(reg) \
-	serial_in_shift((char *)com_port + \
-		((char *)reg - (char *)com_port) * \
-			(1 << CONFIG_DEBUG_UART_SHIFT), \
-		CONFIG_DEBUG_UART_SHIFT)
-
 static inline void _debug_uart_init(void)
 {
 	struct NS16550 *com_port = (struct NS16550 *)CONFIG_DEBUG_UART_BASE;
@@ -263,7 +259,7 @@ static inline void _debug_uart_init(void)
 					    CONFIG_BAUDRATE);
 	serial_dout(&com_port->ier, CONFIG_SYS_NS16550_IER);
 	serial_dout(&com_port->mcr, UART_MCRVAL);
-	serial_dout(&com_port->fcr, UART_FCRVAL);
+	serial_dout(&com_port->fcr, UART_FCR_DEFVAL);
 
 	serial_dout(&com_port->lcr, UART_LCR_BKSE | UART_LCRVAL);
 	serial_dout(&com_port->dll, baud_divisor & 0xff);
@@ -310,9 +306,9 @@ static int ns16550_serial_pending(struct udevice *dev, bool input)
 	struct NS16550 *const com_port = dev_get_priv(dev);
 
 	if (input)
-		return serial_in(&com_port->lsr) & UART_LSR_DR ? 1 : 0;
+		return (serial_in(&com_port->lsr) & UART_LSR_DR) ? 1 : 0;
 	else
-		return serial_in(&com_port->lsr) & UART_LSR_THRE ? 0 : 1;
+		return (serial_in(&com_port->lsr) & UART_LSR_THRE) ? 0 : 1;
 }
 
 static int ns16550_serial_getc(struct udevice *dev)
@@ -341,6 +337,12 @@ static int ns16550_serial_setbrg(struct udevice *dev, int baudrate)
 int ns16550_serial_probe(struct udevice *dev)
 {
 	struct NS16550 *const com_port = dev_get_priv(dev);
+	struct reset_ctl_bulk reset_bulk;
+	int ret;
+
+	ret = reset_get_bulk(dev, &reset_bulk);
+	if (!ret)
+		reset_deassert_bulk(&reset_bulk);
 
 	com_port->plat = dev_get_platdata(dev);
 	NS16550_init(com_port, -1);
@@ -348,16 +350,24 @@ int ns16550_serial_probe(struct udevice *dev)
 	return 0;
 }
 
+#if CONFIG_IS_ENABLED(OF_CONTROL)
+enum {
+	PORT_NS16550 = 0,
+	PORT_JZ4780,
+};
+#endif
+
 #if CONFIG_IS_ENABLED(OF_CONTROL) && !CONFIG_IS_ENABLED(OF_PLATDATA)
 int ns16550_serial_ofdata_to_platdata(struct udevice *dev)
 {
 	struct ns16550_platdata *plat = dev->platdata;
+	const u32 port_type = dev_get_driver_data(dev);
 	fdt_addr_t addr;
 	struct clk clk;
 	int err;
 
 	/* try Processor Local Bus device first */
-	addr = dev_get_addr(dev);
+	addr = dev_read_addr(dev);
 #if defined(CONFIG_PCI) && defined(CONFIG_DM_PCI)
 	if (addr == FDT_ADDR_T_NONE) {
 		/* then try pci device */
@@ -366,13 +376,13 @@ int ns16550_serial_ofdata_to_platdata(struct udevice *dev)
 		int ret;
 
 		/* we prefer to use a memory-mapped register */
-		ret = fdtdec_get_pci_addr(gd->fdt_blob, dev->of_offset,
+		ret = fdtdec_get_pci_addr(gd->fdt_blob, dev_of_offset(dev),
 					  FDT_PCI_SPACE_MEM32, "reg",
 					  &pci_addr);
 		if (ret) {
 			/* try if there is any i/o-mapped register */
 			ret = fdtdec_get_pci_addr(gd->fdt_blob,
-						  dev->of_offset,
+						  dev_of_offset(dev),
 						  FDT_PCI_SPACE_IO,
 						  "reg", &pci_addr);
 			if (ret)
@@ -396,10 +406,8 @@ int ns16550_serial_ofdata_to_platdata(struct udevice *dev)
 	plat->base = (unsigned long)map_physmem(addr, 0, MAP_NOCACHE);
 #endif
 
-	plat->reg_offset = fdtdec_get_int(gd->fdt_blob, dev->of_offset,
-				     "reg-offset", 0);
-	plat->reg_shift = fdtdec_get_int(gd->fdt_blob, dev->of_offset,
-					 "reg-shift", 0);
+	plat->reg_offset = dev_read_u32_default(dev, "reg-offset", 0);
+	plat->reg_shift = dev_read_u32_default(dev, "reg-shift", 0);
 
 	err = clk_get_by_index(dev, 0, &clk);
 	if (!err) {
@@ -412,13 +420,16 @@ int ns16550_serial_ofdata_to_platdata(struct udevice *dev)
 	}
 
 	if (!plat->clock)
-		plat->clock = fdtdec_get_int(gd->fdt_blob, dev->of_offset,
-					     "clock-frequency",
-					     CONFIG_SYS_NS16550_CLK);
+		plat->clock = dev_read_u32_default(dev, "clock-frequency",
+						   CONFIG_SYS_NS16550_CLK);
 	if (!plat->clock) {
 		debug("ns16550 clock not defined\n");
 		return -EINVAL;
 	}
+
+	plat->fcr = UART_FCR_DEFVAL;
+	if (port_type == PORT_JZ4780)
+		plat->fcr |= UART_FCR_UME;
 
 	return 0;
 }
@@ -431,33 +442,30 @@ const struct dm_serial_ops ns16550_serial_ops = {
 	.setbrg = ns16550_serial_setbrg,
 };
 
-#if !CONFIG_IS_ENABLED(OF_PLATDATA)
-#if CONFIG_IS_ENABLED(OF_CONTROL)
+#if CONFIG_IS_ENABLED(OF_CONTROL) && !CONFIG_IS_ENABLED(OF_PLATDATA)
 /*
  * Please consider existing compatible strings before adding a new
  * one to keep this table compact. Or you may add a generic "ns16550"
  * compatible string to your dts.
  */
 static const struct udevice_id ns16550_serial_ids[] = {
-	{ .compatible = "ns16550" },
-	{ .compatible = "ns16550a" },
-	{ .compatible = "nvidia,tegra20-uart" },
-	{ .compatible = "snps,dw-apb-uart" },
-	{ .compatible = "ti,omap2-uart" },
-	{ .compatible = "ti,omap3-uart" },
-	{ .compatible = "ti,omap4-uart" },
-	{ .compatible = "ti,am3352-uart" },
-	{ .compatible = "ti,am4372-uart" },
-	{ .compatible = "ti,dra742-uart" },
+	{ .compatible = "ns16550",		.data = PORT_NS16550 },
+	{ .compatible = "ns16550a",		.data = PORT_NS16550 },
+	{ .compatible = "ingenic,jz4780-uart",	.data = PORT_JZ4780  },
+	{ .compatible = "nvidia,tegra20-uart",	.data = PORT_NS16550 },
+	{ .compatible = "snps,dw-apb-uart",	.data = PORT_NS16550 },
 	{}
 };
-#endif
+#endif /* OF_CONTROL && !OF_PLATDATA */
 
 #if CONFIG_IS_ENABLED(SERIAL_PRESENT)
+
+/* TODO(sjg@chromium.org): Integrate this into a macro like CONFIG_IS_ENABLED */
+#if !defined(CONFIG_TPL_BUILD) || defined(CONFIG_TPL_DM_SERIAL)
 U_BOOT_DRIVER(ns16550_serial) = {
 	.name	= "ns16550_serial",
 	.id	= UCLASS_SERIAL,
-#if CONFIG_IS_ENABLED(OF_CONTROL)
+#if CONFIG_IS_ENABLED(OF_CONTROL) && !CONFIG_IS_ENABLED(OF_PLATDATA)
 	.of_match = ns16550_serial_ids,
 	.ofdata_to_platdata = ns16550_serial_ofdata_to_platdata,
 	.platdata_auto_alloc_size = sizeof(struct ns16550_platdata),
@@ -468,5 +476,6 @@ U_BOOT_DRIVER(ns16550_serial) = {
 	.flags	= DM_FLAG_PRE_RELOC,
 };
 #endif
-#endif /* !OF_PLATDATA */
+#endif /* SERIAL_PRESENT */
+
 #endif /* CONFIG_DM_SERIAL */

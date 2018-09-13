@@ -1,9 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * NVIDIA Tegra SPI-SLINK controller
  *
  * Copyright (c) 2010-2013 NVIDIA Corporation
- *
- * SPDX-License-Identifier:	GPL-2.0
  */
 
 #include <common.h>
@@ -94,10 +93,10 @@ static int tegra30_spi_ofdata_to_platdata(struct udevice *bus)
 {
 	struct tegra_spi_platdata *plat = bus->platdata;
 	const void *blob = gd->fdt_blob;
-	int node = bus->of_offset;
+	int node = dev_of_offset(bus);
 
-	plat->base = dev_get_addr(bus);
-	plat->periph_id = clock_decode_periph_id(blob, node);
+	plat->base = devfdt_get_addr(bus);
+	plat->periph_id = clock_decode_periph_id(bus);
 
 	if (plat->periph_id == PERIPH_ID_NONE) {
 		debug("%s: could not decode periph id %d\n", __func__,

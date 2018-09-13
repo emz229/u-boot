@@ -1,9 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  * Exynos pinctrl driver common code.
  * Copyright (C) 2016 Samsung Electronics
  * Thomas Abraham <thomas.ab@samsung.com>
- *
- * SPDX-License-Identifier:	GPL-2.0+
  */
 
 #include <common.h>
@@ -70,7 +69,7 @@ static unsigned long pin_to_bank_base(struct udevice *dev, const char *pin_name,
 int exynos_pinctrl_set_state(struct udevice *dev, struct udevice *config)
 {
 	const void *fdt = gd->fdt_blob;
-	int node = config->of_offset;
+	int node = dev_of_offset(config);
 	unsigned int count, idx, pin_num;
 	unsigned int pinfunc, pinpud, pindrv;
 	unsigned long reg, value;
@@ -80,7 +79,7 @@ int exynos_pinctrl_set_state(struct udevice *dev, struct udevice *config)
 	 * refer to the following document for the pinctrl bindings
 	 * linux/Documentation/devicetree/bindings/pinctrl/samsung-pinctrl.txt
 	 */
-	count =  fdt_stringlist_count(fdt, node, "samsung,pins");
+	count = fdt_stringlist_count(fdt, node, "samsung,pins");
 	if (count <= 0)
 		return -EINVAL;
 
@@ -128,7 +127,7 @@ int exynos_pinctrl_probe(struct udevice *dev)
 	if (!priv)
 		return -EINVAL;
 
-	base = dev_get_addr(dev);
+	base = devfdt_get_addr(dev);
 	if (base == FDT_ADDR_T_NONE)
 		return -EINVAL;
 

@@ -1,19 +1,18 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  * Copyright (C) 2011
  * Corscience GmbH & Co. KG - Simon Schwarz <schwarz@corscience.de>
- *
- * SPDX-License-Identifier:	GPL-2.0+
  */
 #include <common.h>
 #include <config.h>
 #include <spl.h>
 #include <asm/io.h>
 #include <nand.h>
-#include <libfdt_env.h>
+#include <linux/libfdt_env.h>
 #include <fdt.h>
 
 #if defined(CONFIG_SPL_NAND_RAW_ONLY)
-int spl_nand_load_image(struct spl_image_info *spl_image,
+static int spl_nand_load_image(struct spl_image_info *spl_image,
 			struct spl_boot_device *bootdev)
 {
 	nand_init();
@@ -151,4 +150,4 @@ static int spl_nand_load_image(struct spl_image_info *spl_image,
 }
 #endif
 /* Use priorty 1 so that Ubi can override this */
-SPL_LOAD_IMAGE_METHOD(1, BOOT_DEVICE_NAND, spl_nand_load_image);
+SPL_LOAD_IMAGE_METHOD("NAND", 1, BOOT_DEVICE_NAND, spl_nand_load_image);

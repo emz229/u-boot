@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  * Copyright (C) 2013
  * ISEE 2007 SL - Enric Balletbo i Serra <eballetbo@iseebcn.com>
@@ -5,8 +6,6 @@
  * Based on common/spl/spl_nand.c
  * Copyright (C) 2011
  * Corscience GmbH & Co. KG - Simon Schwarz <schwarz@corscience.de>
- *
- * SPDX-License-Identifier:	GPL-2.0+
  */
 #include <common.h>
 #include <config.h>
@@ -36,4 +35,5 @@ static int spl_onenand_load_image(struct spl_image_info *spl_image,
 	return 0;
 }
 /* Use priorty 1 so that Ubi can override this */
-SPL_LOAD_IMAGE_METHOD(1, BOOT_DEVICE_ONENAND, spl_onenand_load_image);
+SPL_LOAD_IMAGE_METHOD("OneNAND", 1, BOOT_DEVICE_ONENAND,
+		      spl_onenand_load_image);

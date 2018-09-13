@@ -1,7 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  * Copyright 2012 Freescale Semiconductor, Inc.
- *
- * SPDX-License-Identifier:	GPL-2.0+
  */
 
 #include <common.h>
@@ -391,7 +390,7 @@ const char *serdes_clock_to_string(u32 clock)
 	case SRDS_PLLCR0_RFCK_SEL_161_13:
 		return "161.1328123";
 	default:
-#if defined(CONFIG_T4240QDS)
+#if defined(CONFIG_TARGET_T4240QDS) || defined(CONFIG_TARGET_T4160QDS)
 		return "???";
 #else
 		return "122.88";

@@ -1,10 +1,9 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  * Copyright (c) 2015 Sanchayan Maity <sanchayan.maity@toradex.com>
  * Copyright (C) 2015 Toradex AG
  *
  * Based on ehci-mx6 driver
- *
- * SPDX-License-Identifier:	GPL-2.0+
  */
 
 #include <common.h>
@@ -17,10 +16,10 @@
 #include <asm/arch/clock.h>
 #include <asm/arch/imx-regs.h>
 #include <asm/arch/crm_regs.h>
-#include <asm/imx-common/iomux-v3.h>
-#include <asm/imx-common/regs-usbphy.h>
+#include <asm/mach-imx/iomux-v3.h>
+#include <asm/mach-imx/regs-usbphy.h>
 #include <usb/ehci-ci.h>
-#include <libfdt.h>
+#include <linux/libfdt.h>
 #include <fdtdec.h>
 
 #include "ehci.h"
@@ -218,12 +217,12 @@ static int vf_usb_ofdata_to_platdata(struct udevice *dev)
 {
 	struct ehci_vf_priv_data *priv = dev_get_priv(dev);
 	const void *dt_blob = gd->fdt_blob;
-	int node = dev->of_offset;
+	int node = dev_of_offset(dev);
 	const char *mode;
 
 	priv->portnr = dev->seq;
 
-	priv->ehci = (struct usb_ehci *)dev_get_addr(dev);
+	priv->ehci = (struct usb_ehci *)devfdt_get_addr(dev);
 	mode = fdt_getprop(dt_blob, node, "dr_mode", NULL);
 	if (mode) {
 		if (0 == strcmp(mode, "host")) {
@@ -252,8 +251,9 @@ static int vf_usb_ofdata_to_platdata(struct udevice *dev)
 	}
 
 	if (priv->dr_mode == DR_MODE_OTG) {
-		gpio_request_by_name_nodev(dt_blob, node, "fsl,cdet-gpio", 0,
-					   &priv->cdet_gpio, GPIOD_IS_IN);
+		gpio_request_by_name_nodev(offset_to_ofnode(node),
+					   "fsl,cdet-gpio", 0, &priv->cdet_gpio,
+					   GPIOD_IS_IN);
 		if (dm_gpio_is_valid(&priv->cdet_gpio)) {
 			if (dm_gpio_get_value(&priv->cdet_gpio))
 				priv->init_type = USB_INIT_DEVICE;
@@ -339,17 +339,6 @@ static int ehci_usb_probe(struct udevice *dev)
 	return ehci_register(dev, hccr, hcor, &vf_ehci_ops, 0, priv->init_type);
 }
 
-static int ehci_usb_remove(struct udevice *dev)
-{
-	int ret;
-
-	ret = ehci_deregister(dev);
-	if (ret)
-		return ret;
-
-	return 0;
-}
-
 static const struct udevice_id vf_usb_ids[] = {
 	{ .compatible = "fsl,vf610-usb" },
 	{ }
@@ -361,7 +350,7 @@ U_BOOT_DRIVER(usb_ehci) = {
 	.of_match = vf_usb_ids,
 	.bind = vf_usb_bind,
 	.probe = ehci_usb_probe,
-	.remove = ehci_usb_remove,
+	.remove = ehci_deregister,
 	.ops = &ehci_usb_ops,
 	.ofdata_to_platdata = vf_usb_ofdata_to_platdata,
 	.platdata_auto_alloc_size = sizeof(struct usb_platdata),

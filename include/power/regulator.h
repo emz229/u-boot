@@ -1,8 +1,7 @@
+/* SPDX-License-Identifier: GPL-2.0+ */
 /*
  *  Copyright (C) 2014-2015 Samsung Electronics
  *  Przemyslaw Marczak <p.marczak@samsung.com>
- *
- * SPDX-License-Identifier:	GPL-2.0+
  */
 
 #ifndef _INCLUDE_REGULATOR_H_
@@ -211,9 +210,9 @@ struct dm_regulator_ops {
 	 * @dev           - regulator device
 	 * Sets:
 	 * @enable         - set true - enable or false - disable
-	 * @return true/false for get; or 0 / -errno for set.
+	 * @return true/false for get or -errno if fail; 0 / -errno for set.
 	 */
-	bool (*get_enable)(struct udevice *dev);
+	int (*get_enable)(struct udevice *dev);
 	int (*set_enable)(struct udevice *dev, bool enable);
 
 	/**
@@ -261,6 +260,16 @@ int regulator_get_value(struct udevice *dev);
 int regulator_set_value(struct udevice *dev, int uV);
 
 /**
+ * regulator_set_value_force: set the microvoltage value of a given regulator
+ *			      without any min-,max condition check
+ *
+ * @dev    - pointer to the regulator device
+ * @uV     - the output value to set [micro Volts]
+ * @return - 0 on success or -errno val if fails
+ */
+int regulator_set_value_force(struct udevice *dev, int uV);
+
+/**
  * regulator_get_current: get microampere value of a given regulator
  *
  * @dev    - pointer to the regulator device
@@ -281,9 +290,9 @@ int regulator_set_current(struct udevice *dev, int uA);
  * regulator_get_enable: get regulator device enable state.
  *
  * @dev    - pointer to the regulator device
- * @return - true/false of enable state
+ * @return - true/false of enable state or -errno val if fails
  */
-bool regulator_get_enable(struct udevice *dev);
+int regulator_get_enable(struct udevice *dev);
 
 /**
  * regulator_set_enable: set regulator enable state

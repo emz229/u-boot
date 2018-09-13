@@ -1,7 +1,6 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  * Copyright 2014-2015 Freescale Semiconductor, Inc.
- *
- * SPDX-License-Identifier:	GPL-2.0+
  */
 
 #include <common.h>
@@ -11,6 +10,12 @@
 #include <fsl_immap.h>
 #include <fsl_ddr.h>
 #include <fsl_errata.h>
+#if defined(CONFIG_FSL_LSCH2) || defined(CONFIG_FSL_LSCH3) || \
+	defined(CONFIG_ARM)
+#include <asm/arch/clock.h>
+#endif
+
+#define CTLR_INTLV_MASK	0x20000000
 
 #if defined(CONFIG_SYS_FSL_ERRATUM_A008511) | \
 	defined(CONFIG_SYS_FSL_ERRATUM_A009803)
@@ -47,24 +52,16 @@ void fsl_ddr_set_memctl_regs(const fsl_ddr_cfg_regs_t *regs,
 {
 	unsigned int i, bus_width;
 	struct ccsr_ddr __iomem *ddr;
-	u32 temp_sdram_cfg;
+	u32 temp32;
 	u32 total_gb_size_per_controller;
 	int timeout;
-#if defined(CONFIG_SYS_FSL_ERRATUM_A008511) || \
-	defined(CONFIG_SYS_FSL_ERRATUM_A009801)
-	u32 temp32;
-#endif
+	int mod_bnds = 0;
 
 #ifdef CONFIG_SYS_FSL_ERRATUM_A008511
 	u32 mr6;
 	u32 vref_seq1[3] = {0x80, 0x96, 0x16};	/* for range 1 */
 	u32 vref_seq2[3] = {0xc0, 0xf0, 0x70};	/* for range 2 */
 	u32 *vref_seq = vref_seq1;
-#endif
-#if defined(CONFIG_SYS_FSL_ERRATUM_A009942) | \
-	defined(CONFIG_SYS_FSL_ERRATUM_A010165)
-	ulong ddr_freq;
-	u32 tmp;
 #endif
 #ifdef CONFIG_FSL_DDR_BIST
 	u32 mtcr, err_detect, err_sbe;
@@ -73,22 +70,21 @@ void fsl_ddr_set_memctl_regs(const fsl_ddr_cfg_regs_t *regs,
 #ifdef CONFIG_FSL_DDR_BIST
 	char buffer[CONFIG_SYS_CBSIZE];
 #endif
-
 	switch (ctrl_num) {
 	case 0:
 		ddr = (void *)CONFIG_SYS_FSL_DDR_ADDR;
 		break;
-#if defined(CONFIG_SYS_FSL_DDR2_ADDR) && (CONFIG_NUM_DDR_CONTROLLERS > 1)
+#if defined(CONFIG_SYS_FSL_DDR2_ADDR) && (CONFIG_SYS_NUM_DDR_CTLRS > 1)
 	case 1:
 		ddr = (void *)CONFIG_SYS_FSL_DDR2_ADDR;
 		break;
 #endif
-#if defined(CONFIG_SYS_FSL_DDR3_ADDR) && (CONFIG_NUM_DDR_CONTROLLERS > 2)
+#if defined(CONFIG_SYS_FSL_DDR3_ADDR) && (CONFIG_SYS_NUM_DDR_CTLRS > 2)
 	case 2:
 		ddr = (void *)CONFIG_SYS_FSL_DDR3_ADDR;
 		break;
 #endif
-#if defined(CONFIG_SYS_FSL_DDR4_ADDR) && (CONFIG_NUM_DDR_CONTROLLERS > 3)
+#if defined(CONFIG_SYS_FSL_DDR4_ADDR) && (CONFIG_SYS_NUM_DDR_CTLRS > 3)
 	case 3:
 		ddr = (void *)CONFIG_SYS_FSL_DDR4_ADDR;
 		break;
@@ -97,33 +93,60 @@ void fsl_ddr_set_memctl_regs(const fsl_ddr_cfg_regs_t *regs,
 		printf("%s unexpected ctrl_num = %u\n", __func__, ctrl_num);
 		return;
 	}
+	mod_bnds = regs->cs[0].config & CTLR_INTLV_MASK;
 
 	if (step == 2)
 		goto step2;
+
+	/* Set cdr1 first in case 0.9v VDD is enabled for some SoCs*/
+	ddr_out32(&ddr->ddr_cdr1, regs->ddr_cdr1);
 
 	if (regs->ddr_eor)
 		ddr_out32(&ddr->eor, regs->ddr_eor);
 
 	ddr_out32(&ddr->sdram_clk_cntl, regs->ddr_sdram_clk_cntl);
-
 	for (i = 0; i < CONFIG_CHIP_SELECTS_PER_CTRL; i++) {
 		if (i == 0) {
-			ddr_out32(&ddr->cs0_bnds, regs->cs[i].bnds);
-			ddr_out32(&ddr->cs0_config, regs->cs[i].config);
+			if (mod_bnds) {
+				debug("modified bnds\n");
+				ddr_out32(&ddr->cs0_bnds,
+					  (regs->cs[i].bnds & 0xfffefffe) >> 1);
+				ddr_out32(&ddr->cs0_config,
+					  (regs->cs[i].config &
+					   ~CTLR_INTLV_MASK));
+			} else {
+				ddr_out32(&ddr->cs0_bnds, regs->cs[i].bnds);
+				ddr_out32(&ddr->cs0_config, regs->cs[i].config);
+			}
 			ddr_out32(&ddr->cs0_config_2, regs->cs[i].config_2);
 
 		} else if (i == 1) {
-			ddr_out32(&ddr->cs1_bnds, regs->cs[i].bnds);
+			if (mod_bnds) {
+				ddr_out32(&ddr->cs1_bnds,
+					  (regs->cs[i].bnds & 0xfffefffe) >> 1);
+			} else {
+				ddr_out32(&ddr->cs1_bnds, regs->cs[i].bnds);
+			}
 			ddr_out32(&ddr->cs1_config, regs->cs[i].config);
 			ddr_out32(&ddr->cs1_config_2, regs->cs[i].config_2);
 
 		} else if (i == 2) {
-			ddr_out32(&ddr->cs2_bnds, regs->cs[i].bnds);
+			if (mod_bnds) {
+				ddr_out32(&ddr->cs2_bnds,
+					  (regs->cs[i].bnds & 0xfffefffe) >> 1);
+			} else {
+				ddr_out32(&ddr->cs2_bnds, regs->cs[i].bnds);
+			}
 			ddr_out32(&ddr->cs2_config, regs->cs[i].config);
 			ddr_out32(&ddr->cs2_config_2, regs->cs[i].config_2);
 
 		} else if (i == 3) {
-			ddr_out32(&ddr->cs3_bnds, regs->cs[i].bnds);
+			if (mod_bnds) {
+				ddr_out32(&ddr->cs3_bnds,
+					  (regs->cs[i].bnds & 0xfffefffe) >> 1);
+			} else {
+				ddr_out32(&ddr->cs3_bnds, regs->cs[i].bnds);
+			}
 			ddr_out32(&ddr->cs3_config, regs->cs[i].config);
 			ddr_out32(&ddr->cs3_config_2, regs->cs[i].config_2);
 		}
@@ -189,7 +212,6 @@ void fsl_ddr_set_memctl_regs(const fsl_ddr_cfg_regs_t *regs,
 	ddr_out32(&ddr->ddr_sdram_rcw_4, regs->ddr_sdram_rcw_4);
 	ddr_out32(&ddr->ddr_sdram_rcw_5, regs->ddr_sdram_rcw_5);
 	ddr_out32(&ddr->ddr_sdram_rcw_6, regs->ddr_sdram_rcw_6);
-	ddr_out32(&ddr->ddr_cdr1, regs->ddr_cdr1);
 #ifdef CONFIG_DEEP_SLEEP
 	if (is_warm_boot()) {
 		ddr_out32(&ddr->sdram_cfg_2,
@@ -214,7 +236,7 @@ void fsl_ddr_set_memctl_regs(const fsl_ddr_cfg_regs_t *regs,
 	if (regs->ddr_sdram_cfg_2 & SDRAM_CFG2_AP_EN) {
 		if (regs->ddr_sdram_cfg & SDRAM_CFG_RD_EN) { /* for RDIMM */
 			ddr_out32(&ddr->ddr_sdram_rcw_2,
-				  regs->ddr_sdram_rcw_2 & ~0x0f000000);
+				  regs->ddr_sdram_rcw_2 & ~0xf0);
 		}
 		ddr_out32(&ddr->err_disable, regs->err_disable |
 			  DDR_ERR_DISABLE_APED);
@@ -230,16 +252,6 @@ void fsl_ddr_set_memctl_regs(const fsl_ddr_cfg_regs_t *regs,
 			ddr_out32(&ddr->debug[i], regs->debug[i]);
 		}
 	}
-#ifdef CONFIG_SYS_FSL_ERRATUM_A008378
-	/* Erratum applies when accumulated ECC is used, or DBI is enabled */
-#define IS_ACC_ECC_EN(v) ((v) & 0x4)
-#define IS_DBI(v) ((((v) >> 12) & 0x3) == 0x2)
-	if (has_erratum_a008378()) {
-		if (IS_ACC_ECC_EN(regs->ddr_sdram_cfg) ||
-		    IS_DBI(regs->ddr_sdram_cfg_3))
-			ddr_setbits32(&ddr->debug[28], 0x9 << 20);
-	}
-#endif
 
 #ifdef CONFIG_SYS_FSL_ERRATUM_A008511
 	/* Part 1 of 2 */
@@ -277,24 +289,11 @@ void fsl_ddr_set_memctl_regs(const fsl_ddr_cfg_regs_t *regs,
 	ddr_out32(&ddr->debug[25], temp32);
 #endif
 
-#ifdef CONFIG_SYS_FSL_ERRATUM_A009942
-	ddr_freq = get_ddr_freq(ctrl_num) / 1000000;
-	tmp = ddr_in32(&ddr->debug[28]);
-	if (ddr_freq <= 1333)
-		ddr_out32(&ddr->debug[28], tmp | 0x0080006a);
-	else if (ddr_freq <= 1600)
-		ddr_out32(&ddr->debug[28], tmp | 0x0070006f);
-	else if (ddr_freq <= 1867)
-		ddr_out32(&ddr->debug[28], tmp | 0x00700076);
-	else if (ddr_freq <= 2133)
-		ddr_out32(&ddr->debug[28], tmp | 0x0060007b);
-#endif
-
 #ifdef CONFIG_SYS_FSL_ERRATUM_A010165
-	ddr_freq = get_ddr_freq(ctrl_num) / 1000000;
-	if ((ddr_freq > 1900) && (ddr_freq < 2300)) {
-		tmp = ddr_in32(&ddr->debug[28]);
-		ddr_out32(&ddr->debug[28], tmp | 0x000a0000);
+	temp32 = get_ddr_freq(ctrl_num) / 1000000;
+	if ((temp32 > 1900) && (temp32 < 2300)) {
+		temp32 = ddr_in32(&ddr->debug[28]);
+		ddr_out32(&ddr->debug[28], temp32 | 0x000a0000);
 	}
 #endif
 	/*
@@ -312,9 +311,9 @@ void fsl_ddr_set_memctl_regs(const fsl_ddr_cfg_regs_t *regs,
 
 step2:
 	/* Set, but do not enable the memory */
-	temp_sdram_cfg = regs->ddr_sdram_cfg;
-	temp_sdram_cfg &= ~(SDRAM_CFG_MEM_EN);
-	ddr_out32(&ddr->sdram_cfg, temp_sdram_cfg);
+	temp32 = regs->ddr_sdram_cfg;
+	temp32 &= ~(SDRAM_CFG_MEM_EN);
+	ddr_out32(&ddr->sdram_cfg, temp32);
 
 	/*
 	 * 500 painful micro-seconds must elapse between
@@ -329,18 +328,18 @@ step2:
 #ifdef CONFIG_DEEP_SLEEP
 	if (is_warm_boot()) {
 		/* enter self-refresh */
-		temp_sdram_cfg = ddr_in32(&ddr->sdram_cfg_2);
-		temp_sdram_cfg |= SDRAM_CFG2_FRC_SR;
-		ddr_out32(&ddr->sdram_cfg_2, temp_sdram_cfg);
+		temp32 = ddr_in32(&ddr->sdram_cfg_2);
+		temp32 |= SDRAM_CFG2_FRC_SR;
+		ddr_out32(&ddr->sdram_cfg_2, temp32);
 		/* do board specific memory setup */
 		board_mem_sleep_setup();
 
-		temp_sdram_cfg = (ddr_in32(&ddr->sdram_cfg) | SDRAM_CFG_BI);
+		temp32 = (ddr_in32(&ddr->sdram_cfg) | SDRAM_CFG_BI);
 	} else
 #endif
-		temp_sdram_cfg = ddr_in32(&ddr->sdram_cfg) & ~SDRAM_CFG_BI;
+		temp32 = ddr_in32(&ddr->sdram_cfg) & ~SDRAM_CFG_BI;
 	/* Let the controller go */
-	ddr_out32(&ddr->sdram_cfg, temp_sdram_cfg | SDRAM_CFG_MEM_EN);
+	ddr_out32(&ddr->sdram_cfg, temp32 | SDRAM_CFG_MEM_EN);
 	mb();
 	isb();
 
@@ -444,13 +443,10 @@ step2:
 			((regs->cs[i].config >> 8) & 0x7) + 12 +
 			((regs->cs[i].config >> 4) & 0x3) + 0 +
 			((regs->cs[i].config >> 0) & 0x7) + 8 +
+			((regs->ddr_sdram_cfg_3 >> 4) & 0x3) +
 			3 - ((regs->ddr_sdram_cfg >> 19) & 0x3) -
 			26);			/* minus 26 (count of 64M) */
 	}
-	if (fsl_ddr_get_intl3r() & 0x80000000)	/* 3-way interleaving */
-		total_gb_size_per_controller *= 3;
-	else if (regs->cs[0].config & 0x20000000) /* 2-way interleaving */
-		total_gb_size_per_controller <<= 1;
 	/*
 	 * total memory / bus width = transactions needed
 	 * transactions needed / data rate = seconds
@@ -476,6 +472,21 @@ step2:
 	if (timeout <= 0)
 		printf("Waiting for D_INIT timeout. Memory may not work.\n");
 
+	if (mod_bnds) {
+		debug("Reset to original bnds\n");
+		ddr_out32(&ddr->cs0_bnds, regs->cs[0].bnds);
+#if (CONFIG_CHIP_SELECTS_PER_CTRL > 1)
+		ddr_out32(&ddr->cs1_bnds, regs->cs[1].bnds);
+#if (CONFIG_CHIP_SELECTS_PER_CTRL > 2)
+		ddr_out32(&ddr->cs2_bnds, regs->cs[2].bnds);
+#if (CONFIG_CHIP_SELECTS_PER_CTRL > 3)
+		ddr_out32(&ddr->cs3_bnds, regs->cs[3].bnds);
+#endif
+#endif
+#endif
+		ddr_out32(&ddr->cs0_config, regs->cs[0].config);
+	}
+
 #ifdef CONFIG_SYS_FSL_ERRATUM_A009663
 	ddr_out32(&ddr->sdram_interval, regs->ddr_sdram_interval);
 #endif
@@ -483,9 +494,9 @@ step2:
 #ifdef CONFIG_DEEP_SLEEP
 	if (is_warm_boot()) {
 		/* exit self-refresh */
-		temp_sdram_cfg = ddr_in32(&ddr->sdram_cfg_2);
-		temp_sdram_cfg &= ~SDRAM_CFG2_FRC_SR;
-		ddr_out32(&ddr->sdram_cfg_2, temp_sdram_cfg);
+		temp32 = ddr_in32(&ddr->sdram_cfg_2);
+		temp32 &= ~SDRAM_CFG2_FRC_SR;
+		ddr_out32(&ddr->sdram_cfg_2, temp32);
 	}
 #endif
 
@@ -495,10 +506,9 @@ step2:
 #define BIST_CR		0x80010000
 #define BIST_CR_EN	0x80000000
 #define BIST_CR_STAT	0x00000001
-#define CTLR_INTLV_MASK	0x20000000
 	/* Perform build-in test on memory. Three-way interleaving is not yet
 	 * supported by this code. */
-	if (getenv_f("ddr_bist", buffer, CONFIG_SYS_CBSIZE) >= 0) {
+	if (env_get_f("ddr_bist", buffer, CONFIG_SYS_CBSIZE) >= 0) {
 		puts("Running BIST test. This will take a while...");
 		cs0_config = ddr_in32(&ddr->cs0_config);
 		cs0_bnds = ddr_in32(&ddr->cs0_bnds);
