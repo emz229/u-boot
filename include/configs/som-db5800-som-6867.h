@@ -39,6 +39,7 @@
 	CONFIG_STD_DEVICES_SETTINGS \
 	"optargs=\0" \
 	"loadaddr=0x32000000\0" \
+	"initrd_high=0xffffffff\0" \
 	"bootfile=fitImage-overlay-ima-initramfs-image-orionlx-plus.bin\0" \
 	"fsfile=orion-graphical-image-orionlx-plus.fsfit\0" \
 	"altbootfile=alt-fitImage-overlay-ima-initramfs-image-orionlx-plus.bin\0" \
