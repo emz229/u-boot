@@ -249,6 +249,7 @@
 
 #undef CONFIG_BOOTCOMMAND
 #define CONFIG_BOOTCOMMAND \
+	"scsi scan;" \
 	"run tpm_init;" \
 	"if sf probe; then " \
 		"echo sf probe passed;" \
