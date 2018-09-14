@@ -174,7 +174,7 @@ class TestFunctional(unittest.TestCase):
         return control.Binman(options, args)
 
     def _DoTestFile(self, fname, debug=False, map=False, update_dtb=False,
-                    entry_args=None, images=None):
+                    entry_args=None, images=None, use_real_dtb=False):
         """Run binman with a given test file
 
         Args:
@@ -195,6 +195,8 @@ class TestFunctional(unittest.TestCase):
             args.append('-m')
         if update_dtb:
             args.append('-up')
+        if not use_real_dtb:
+            args.append('--fake-dtb')
         if entry_args:
             for arg, value in entry_args.iteritems():
                 args.append('-a%s=%s' % (arg, value))
