@@ -58,6 +58,7 @@ enum altera_family {
 	Altera_SoCFPGA,
 
 	/* Add new models here */
+	Altera_CVP,
 
 	/* insert all new types before this */
 	max_altera_type,
@@ -114,6 +115,10 @@ int socfpga_load(Altera_desc *desc, const void *rbf_data, size_t rbf_size);
 
 #ifdef CONFIG_FPGA_STRATIX_V
 int stratixv_load(Altera_desc *desc, const void *rbf_data, size_t rbf_size);
+#endif
+
+#ifdef CONFIG_FPGA_ALTERA_CVP
+int altera_cvp_load(Altera_desc *desc, const void *rbf_data, size_t rbf_size);
 #endif
 
 #endif /* _ALTERA_H_ */

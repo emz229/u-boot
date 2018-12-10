@@ -42,6 +42,9 @@ static const struct altera_fpga {
 #if defined(CONFIG_FPGA_SOCFPGA)
 	{ Altera_SoCFPGA, "SoC FPGA", socfpga_load, NULL, NULL },
 #endif
+#if defined(CONFIG_FPGA_ALTERA_CVP)
+	{ Altera_CVP, "CVP", altera_cvp_load, NULL, NULL },
+#endif
 };
 
 static int altera_validate(Altera_desc *desc, const char *fn)

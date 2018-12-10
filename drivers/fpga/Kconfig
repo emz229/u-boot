@@ -31,6 +31,14 @@ config FPGA_CYCLON2
 	  Enable FPGA driver for loading bitstream in BIT and BIN format
 	  on Altera Cyclone II device.
 
+config FPGA_ALTERA_CVP
+	bool "Enable Altera FPGA CvP driver"
+	depends on FPGA_ALTERA
+	help
+	  Say Y here to enable the Altera FPGA CvP driver
+
+	  Enable Configuration via Protocol (CvP) driver for Altera FPGAs.
+
 config FPGA_XILINX
 	bool "Enable Xilinx FPGA drivers"
 	select FPGA
