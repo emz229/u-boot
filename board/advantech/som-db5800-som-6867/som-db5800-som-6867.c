@@ -6,6 +6,7 @@
 
 #include <common.h>
 #include <asm/fsp/fsp_support.h>
+#include <altera.h>
 
 /* ALC262 Verb Table - 10EC0262 */
 static const u32 verb_table_data13[] = {
@@ -127,3 +128,30 @@ int board_early_init_f(void)
 
 	return 0;
 }
+
+#ifdef CONFIG_FPGA
+static Altera_desc altera_fpga[] = {
+	{
+		/* Family */
+		Altera_CVP,
+		/* Interface type */
+		fast_passive_parallel,
+		/* No limitation as additional data will be ignored */
+		-1,
+		/* No device function table */
+		NULL,
+		/* Base interface address specified in driver */
+		NULL,
+		/* No cookie implementation */
+		0
+	},
+};
+
+int board_late_init(void)
+{
+	int i;
+	fpga_init();
+	for (i = 0; i < ARRAY_SIZE(altera_fpga); i++)
+		fpga_add(fpga_altera, &altera_fpga[i]);
+}
+#endif

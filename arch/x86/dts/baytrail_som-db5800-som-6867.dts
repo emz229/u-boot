@@ -122,7 +122,8 @@
 	};
 
 	pci {
-		compatible = "intel,pci-baytrail", "pci-x86";
+		reg = <0xe0000000 0x10000000>;
+		compatible = "intel,pci-baytrail", "pci-host-ecam-generic";
 		#address-cells = <3>;
 		#size-cells = <2>;
 		u-boot,dm-pre-reloc;

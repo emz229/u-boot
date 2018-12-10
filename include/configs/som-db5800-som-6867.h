@@ -12,6 +12,8 @@
 
 #include <configs/x86-common.h>
 
+#define CONFIG_BOARD_LATE_INIT
+
 #define CONFIG_SYS_MONITOR_LEN		(1 << 20)
 
 #define CONFIG_STD_DEVICES_SETTINGS	"stdin=serial,usbkbd\0" \
