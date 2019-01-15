@@ -250,6 +250,12 @@
 #undef CONFIG_BOOTCOMMAND
 #define CONFIG_BOOTCOMMAND \
 	"scsi scan;" \
+	"if date; then " \
+		"echo valid date/time read from RTC;" \
+	"else;" \
+		"echo invalid date/time, resetting RTC;" \
+		"date reset;" \
+	"fi;" \
 	"run tpm_init;" \
 	"if sf probe; then " \
 		"echo sf probe passed;" \
