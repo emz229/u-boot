@@ -103,6 +103,10 @@ static int mc146818_get(struct rtc_time *tmp)
 	       mc146818_read8(RTC_MINUTES_ALARM),
 	       mc146818_read8(RTC_SECONDS_ALARM));
 #endif
+	if (sec > 0x59 || min > 0x59 || hour > 0x23 || mday > 0x31 ||
+	    wday > 0x7 || mon > 0x12)
+		return -1;
+
 	tmp->tm_sec  = bcd2bin(sec & 0x7f);
 	tmp->tm_min  = bcd2bin(min & 0x7f);
 	tmp->tm_hour = bcd2bin(hour & 0x3f);
