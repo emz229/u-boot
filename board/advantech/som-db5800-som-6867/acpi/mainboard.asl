@@ -57,3 +57,31 @@ Device (TPM)
 		MRET,   32  //   Memory Overwrite function return code
 	}
 }
+
+scope (\_SB.PCI0)
+{
+	Device(SBUS)
+	{
+		Name (_ADR, 0x001F0003)
+	}
+
+	Device(NIO1)
+	{
+		Name(_HID, "PCA9554")
+		Name(_CID, "PCA9554")
+		Name(_UID, 1)
+
+		Name(RBUF, ResourceTemplate()
+		{
+			I2CSerialBus(0x20, ControllerInitiated, 400000, AddressingMode7Bit, "\\_SB.PCI0.SBUS", 0, ResourceConsumer, , )
+		})
+		Method(_CRS, 0x0, NotSerialized)
+		{
+			Return(RBUF)
+		}
+		Method(_STA, 0x0, NotSerialized)
+		{
+			Return(0xf)
+		}
+	}
+}
