@@ -84,4 +84,24 @@ scope (\_SB.PCI0)
 			Return(0xf)
 		}
 	}
+
+	Device(MAX1)
+	{
+		Name(_HID, "MAX6652")
+		Name(_CID, "MAX6652")
+		Name(_UID, 2)
+
+		Name(RBUF, ResourceTemplate()
+		{
+			I2CSerialBus(0x14, ControllerInitiated, 400000, AddressingMode7Bit, "\\_SB.PCI0.SBUS", 0, ResourceConsumer, , )
+		})
+		Method(_CRS, 0x0, NotSerialized)
+		{
+			Return(RBUF)
+		}
+		Method(_STA, 0x0, NotSerialized)
+		{
+			Return(0xf)
+		}
+	}
 }
