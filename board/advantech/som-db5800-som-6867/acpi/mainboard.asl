@@ -104,4 +104,60 @@ scope (\_SB.PCI0)
 			Return(0xf)
 		}
 	}
+
+	Device(TMP1)
+	{
+		Name(_HID, "TMP0512")
+		Name(_CID, "TMP0512")
+		Name(_UID, 3)
+		Name(_DSD, Package()
+		{
+			ToUUID("daffd814-6eba-4d8c-8a91-bc9bbf4aa301"),
+			Package()
+			{
+				Package(2) {"shunt-resistor", 8000}
+			}
+		})
+
+		Name(RBUF, ResourceTemplate()
+		{
+			I2CSerialBus(0x5d, ControllerInitiated, 400000, AddressingMode7Bit, "\\_SB.PCI0.SBUS", 0, ResourceConsumer, , )
+		})
+		Method(_CRS, 0x0, NotSerialized)
+		{
+			Return(RBUF)
+		}
+		Method(_STA, 0x0, NotSerialized)
+		{
+			Return(0xf)
+		}
+	}
+
+	Device(TMP2)
+	{
+		Name(_HID, "TMP0512")
+		Name(_CID, "TMP0512")
+		Name(_UID, 4)
+		Name(_DSD, Package()
+		{
+			ToUUID("daffd814-6eba-4d8c-8a91-bc9bbf4aa301"),
+			Package()
+			{
+				Package(2) {"shunt-resistor", 8000}
+			}
+		})
+
+		Name(RBUF, ResourceTemplate()
+		{
+			I2CSerialBus(0x5c, ControllerInitiated, 400000, AddressingMode7Bit, "\\_SB.PCI0.SBUS", 0, ResourceConsumer, , )
+		})
+		Method(_CRS, 0x0, NotSerialized)
+		{
+			Return(RBUF)
+		}
+		Method(_STA, 0x0, NotSerialized)
+		{
+			Return(0xf)
+		}
+	}
 }
