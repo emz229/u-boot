@@ -279,6 +279,7 @@
 		fsp,enable-spi;
 		fsp,enable-sata;
 		fsp,sata-mode = <SATA_MODE_AHCI>;
+		fsp,enable-xhci;
 		fsp,enable-azalia;
 		fsp,lpss-sio-mode = <LPSS_SIO_MODE_PCI>;
 		fsp,enable-dma0;
