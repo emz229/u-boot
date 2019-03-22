@@ -131,8 +131,12 @@
 						"echo failed to set physical presence;" \
 					"fi;" \
 				"fi;" \
-				"if tpm tsc_physical_presence 0x10; then " \
+				"if test -n ${pplocked}; then " \
+					"echo physical presence already locked;" \
+				"elif tpm tsc_physical_presence 0x10; then " \
 					"if tpm tsc_physical_presence 0x4; then " \
+						"echo locked physical presence;" \
+						"setenv pplocked true;" \
 					"else;" \
 						"echo failed to lock physical presence;" \
 						"false;" \
