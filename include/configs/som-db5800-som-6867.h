@@ -120,17 +120,6 @@
 	"checkminversion=" \
 		"if tpm nv_read d 0x1008 tpm_min_version; then " \
 			"if test \"${tpm_min_version}\" -le \"${kernel_version}\"; then " \
-				"if test \"${tpm_min_version}\" -lt \"${min_version}\"; then " \
-					"if tpm tsc_physical_presence 0x8; then " \
-						"if tpm nv_write d 0x1008 ${min_version}; then " \
-							"echo set tpm_min_version to ${min_version};" \
-						"else;" \
-							"echo failed to set tpm_min_version to ${min_version};" \
-						"fi;" \
-					"else;" \
-						"echo failed to set physical presence;" \
-					"fi;" \
-				"fi;" \
 				"if test -n ${pplocked}; then " \
 					"echo physical presence already locked;" \
 				"elif tpm tsc_physical_presence 0x10; then " \
@@ -151,6 +140,27 @@
 			"fi;" \
 		"else;" \
 			"echo error reading tpm_min_version;" \
+			"false;" \
+		"fi;\0" \
+	"updateminversion=" \
+		"if tpm nv_read d 0x1008 tpm_min_version && tpm nv_read d 0x100c booted_min_version; then " \
+			"if test \"${tpm_min_version}\" -lt \"${booted_min_version}\" -a \"${booted_min_version}\" != \"4294967295\"; then " \
+				"if tpm tsc_physical_presence 0x8; then " \
+					"if tpm nv_write d 0x1008 ${booted_min_version}; then " \
+						"echo set tpm_min_version to ${booted_min_version};" \
+					"else;" \
+						"echo failed to set tpm_min_version to ${booted_min_version};" \
+						"false;" \
+					"fi;" \
+				"else;" \
+					"echo failed to set physical presence;" \
+					"false;" \
+				"fi;" \
+			"else;" \
+				"echo tpm_min_version okay;" \
+			"fi;" \
+		"else;" \
+			"echo error reading versions from tpm;" \
 			"false;" \
 		"fi;\0" \
 	"extendrompcr=" \
@@ -272,6 +282,12 @@
 	ORIONLX_PROTECT_FLASH \
 	"run extendrompcr;" \
 	ORIONLX_PLUS_USB_BOOT \
+	"if run updateminversion; then " \
+		"echo updateminversion passed;" \
+	"else;" \
+		"echo updateminversion failed;" \
+		"reset;" \
+	"fi;" \
 	"if test -e scsi 0:1 bootalt.txt; then " \
 		"run usealt;" \
 		"if run loadimage; then " \
