@@ -163,6 +163,32 @@
 			"echo error reading versions from tpm;" \
 			"false;" \
 		"fi;\0" \
+	"whichbootslot=" /* return false for main (A), true for alt (B)*/ \
+		"scsi read ${loadaddr} 0x800 1;" \
+		"if itest.b *${loadaddr} > 0 && itest.b *${loadaddr} < 0xff; then " \
+			"if itest.b *${loadaddr} == 1; then " \
+				"setenv revert_boot true;" \
+			"else;" \
+				"setexpr.b dec_bootctr *${loadaddr} - 1;" \
+				"mw.b ${loadaddr} ${dec_bootctr} 1;" \
+				"scsi write ${loadaddr} 0x800 1;" \
+			"fi;" \
+		"fi;" \
+		"if test -e scsi 0:1 bootalt.txt; then " \
+			"if test -n ${revert_boot}; then " \
+				"echo prefer main boot slot;" \
+				"false;" \
+			"else;" \
+				"echo prefer alt boot slot;" \
+			"fi;" \
+		"else;" \
+			"if test -n ${revert_boot}; then " \
+				"echo prefer alt boot slot;" \
+			"else;" \
+				"echo prefer main boot slot;" \
+				"false;" \
+			"fi;" \
+		"fi;\0" \
 	"extendrompcr=" \
 		"if sf read $loadaddr 0 800000; then " \
 			"echo sf read passed;" \
@@ -288,7 +314,7 @@
 		"echo updateminversion failed;" \
 		"reset;" \
 	"fi;" \
-	"if test -e scsi 0:1 bootalt.txt; then " \
+	"if run whichbootslot; then " \
 		"run usealt;" \
 		"if run loadimage; then " \
 			"if run checkminversion; then " \
