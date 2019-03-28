@@ -120,17 +120,6 @@
 	"checkminversion=" \
 		"if tpm nv_read d 0x1008 tpm_min_version; then " \
 			"if test \"${tpm_min_version}\" -le \"${kernel_version}\"; then " \
-				"if test \"${tpm_min_version}\" -lt \"${min_version}\"; then " \
-					"if tpm tsc_physical_presence 0x8; then " \
-						"if tpm nv_write d 0x1008 ${min_version}; then " \
-							"echo set tpm_min_version to ${min_version};" \
-						"else;" \
-							"echo failed to set tpm_min_version to ${min_version};" \
-						"fi;" \
-					"else;" \
-						"echo failed to set physical presence;" \
-					"fi;" \
-				"fi;" \
 				"if test -n ${pplocked}; then " \
 					"echo physical presence already locked;" \
 				"elif tpm tsc_physical_presence 0x10; then " \
@@ -152,6 +141,53 @@
 		"else;" \
 			"echo error reading tpm_min_version;" \
 			"false;" \
+		"fi;\0" \
+	"updateminversion=" \
+		"if tpm nv_read d 0x1008 tpm_min_version && tpm nv_read d 0x100c booted_min_version; then " \
+			"if test \"${tpm_min_version}\" -lt \"${booted_min_version}\" -a \"${booted_min_version}\" != \"4294967295\"; then " \
+				"if tpm tsc_physical_presence 0x8; then " \
+					"if tpm nv_write d 0x1008 ${booted_min_version}; then " \
+						"echo set tpm_min_version to ${booted_min_version};" \
+					"else;" \
+						"echo failed to set tpm_min_version to ${booted_min_version};" \
+						"false;" \
+					"fi;" \
+				"else;" \
+					"echo failed to set physical presence;" \
+					"false;" \
+				"fi;" \
+			"else;" \
+				"echo tpm_min_version okay;" \
+			"fi;" \
+		"else;" \
+			"echo error reading versions from tpm;" \
+			"false;" \
+		"fi;\0" \
+	"whichbootslot=" /* return false for main (A), true for alt (B)*/ \
+		"scsi read ${loadaddr} 0x800 1;" \
+		"if itest.b *${loadaddr} > 0 && itest.b *${loadaddr} < 0xff; then " \
+			"if itest.b *${loadaddr} == 1; then " \
+				"setenv revert_boot true;" \
+			"else;" \
+				"setexpr.b dec_bootctr *${loadaddr} - 1;" \
+				"mw.b ${loadaddr} ${dec_bootctr} 1;" \
+				"scsi write ${loadaddr} 0x800 1;" \
+			"fi;" \
+		"fi;" \
+		"if test -e scsi 0:1 bootalt.txt; then " \
+			"if test -n ${revert_boot}; then " \
+				"echo prefer main boot slot;" \
+				"false;" \
+			"else;" \
+				"echo prefer alt boot slot;" \
+			"fi;" \
+		"else;" \
+			"if test -n ${revert_boot}; then " \
+				"echo prefer alt boot slot;" \
+			"else;" \
+				"echo prefer main boot slot;" \
+				"false;" \
+			"fi;" \
 		"fi;\0" \
 	"extendrompcr=" \
 		"if sf read $loadaddr 0 800000; then " \
@@ -272,7 +308,13 @@
 	ORIONLX_PROTECT_FLASH \
 	"run extendrompcr;" \
 	ORIONLX_PLUS_USB_BOOT \
-	"if test -e scsi 0:1 bootalt.txt; then " \
+	"if run updateminversion; then " \
+		"echo updateminversion passed;" \
+	"else;" \
+		"echo updateminversion failed;" \
+		"reset;" \
+	"fi;" \
+	"if run whichbootslot; then " \
 		"run usealt;" \
 		"if run loadimage; then " \
 			"if run checkminversion; then " \
