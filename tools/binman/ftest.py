@@ -210,7 +210,7 @@ class TestFunctional(unittest.TestCase):
         if not use_real_dtb:
             args.append('--fake-dtb')
         if entry_args:
-            for arg, value in entry_args.iteritems():
+            for arg, value in entry_args.items():
                 args.append('-a%s=%s' % (arg, value))
         if images:
             for image in images:
