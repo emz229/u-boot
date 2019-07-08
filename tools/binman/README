@@ -181,6 +181,11 @@ the configuration of the Intel-format descriptor.
 Running binman
 --------------
 
+First install prerequisites, e.g.
+
+	sudo apt-get install python-pyelftools python3-pyelftools lzma-alone \
+		liblz4-tool
+
 Type:
 
 	binman -b <board_name>
