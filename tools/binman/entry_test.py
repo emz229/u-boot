@@ -47,6 +47,17 @@ class TestEntry(unittest.TestCase):
         entry.Entry.Create(None, self.GetNode(), 'u-boot-spl')
         del entry
 
+    def _ReloadEntry(self):
+        global entry
+        if entry:
+            if sys.version_info[0] >= 3:
+                import importlib
+                importlib.reload(entry)
+            else:
+                reload(entry)
+        else:
+            import entry
+
     def testEntryContents(self):
         """Test the Entry bass class"""
         import entry
