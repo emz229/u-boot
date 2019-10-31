@@ -147,8 +147,67 @@ def Align(pos, align):
 def NotPowerOfTwo(num):
     return num and (num & (num - 1))
 
-def Run(name, *args):
-    command.Run(name, *args, cwd=outdir)
+def SetToolPaths(toolpaths):
+    """Set the path to search for tools
+
+    Args:
+        toolpaths: List of paths to search for tools executed by Run()
+    """
+    global tool_search_paths
+
+    tool_search_paths = toolpaths
+
+def PathHasFile(path_spec, fname):
+    """Check if a given filename is in the PATH
+
+    Args:
+        path_spec: Value of PATH variable to check
+        fname: Filename to check
+
+    Returns:
+        True if found, False if not
+    """
+    for dir in path_spec.split(':'):
+        if os.path.exists(os.path.join(dir, fname)):
+            return True
+    return False
+
+def Run(name, *args, **kwargs):
+    """Run a tool with some arguments
+
+    This runs a 'tool', which is a program used by binman to process files and
+    perhaps produce some output. Tools can be located on the PATH or in a
+    search path.
+
+    Args:
+        name: Command name to run
+        args: Arguments to the tool
+
+    Returns:
+        CommandResult object
+    """
+    try:
+        binary = kwargs.get('binary')
+        env = None
+        if tool_search_paths:
+            env = dict(os.environ)
+            env['PATH'] = ':'.join(tool_search_paths) + ':' + env['PATH']
+        all_args = (name,) + args
+        result = command.RunPipe([all_args], capture=True, capture_stderr=True,
+                                 env=env, raise_on_error=False, binary=binary)
+        if result.return_code:
+            raise Exception("Error %d running '%s': %s" %
+               (result.return_code,' '.join(all_args),
+                result.stderr))
+        return result.stdout
+    except:
+        if env and not PathHasFile(env['PATH'], name):
+            msg = "Please install tool '%s'" % name
+            package = packages.get(name)
+            if package:
+                 msg += " (e.g. from package '%s')" % package
+            raise ValueError(msg)
+        raise
 
 def Filename(fname):
     """Resolve a file path to an absolute path.
@@ -303,7 +362,7 @@ def ToBytes(string):
     """Convert a str type into a bytes type
 
     Args:
-        string: string to convert value
+        string: string to convert
 
     Returns:
         Python 3: A bytes type
@@ -313,7 +372,19 @@ def ToBytes(string):
         return string.encode('utf-8')
     return string
 
-def Compress(indata, algo):
+def ToString(bval):
+    """Convert a bytes type into a str type
+
+    Args:
+        bval: bytes value to convert
+
+    Returns:
+        Python 3: A bytes type
+        Python 2: A string type
+    """
+    return bval.decode('utf-8')
+
+def Compress(indata, algo, with_header=True):
     """Compress some data using a given algorithm
 
     Note that for lzma this uses an old version of the algorithm, not that
@@ -372,7 +443,7 @@ def Decompress(indata, algo):
     elif algo == 'lzma':
         outfname = GetOutputFilename('%s.decomp.otmp' % algo)
         Run('lzma_alone', 'd', fname, outfname)
-        data = ReadFile(outfname)
+        data = ReadFile(outfname, binary=True)
     elif algo == 'gzip':
         data = Run('gzip', '-cd', fname, binary=True)
     else:
