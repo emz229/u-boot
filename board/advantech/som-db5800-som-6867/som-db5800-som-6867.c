@@ -7,6 +7,8 @@
 #include <common.h>
 #include <asm/fsp/fsp_support.h>
 #include <altera.h>
+#include <dm.h>
+#include <pci.h>
 
 /* ALC262 Verb Table - 10EC0262 */
 static const u32 verb_table_data13[] = {
@@ -147,11 +149,112 @@ static Altera_desc altera_fpga[] = {
 	},
 };
 
-int board_late_init(void)
+int board_fpga_init(void)
 {
 	int i;
 	fpga_init();
 	for (i = 0; i < ARRAY_SIZE(altera_fpga); i++)
 		fpga_add(fpga_altera, &altera_fpga[i]);
+
+	return 0;
 }
 #endif
+
+/* Hijack this vendor ID for identifying cards that require an overlay */
+#define PCI_VENDOR_ID_NOVAWEB 0x14ac
+#define PCI_CLASS(c) (((c) >> 8) & 0xffff)
+int board_walk_pci(int *busnum, int depth, int root_devfn)
+{
+	int ret;
+	struct udevice *dev, *bus;
+	int i;
+
+	ret = uclass_get_device_by_seq(UCLASS_PCI, *busnum, &bus);
+	if (ret) {
+		printf("No such bus\n");
+		return -1;
+	}
+
+	for (device_find_first_child(bus, &dev);
+	     dev;
+	     device_find_next_child(&dev)) {
+		struct pci_child_platdata *pplat;
+		u16 subsystem_vid;
+		u16 subsystem_id;
+		u8 header_type;
+
+		pplat = dev_get_parent_platdata(dev);
+
+		for (i = 0; i < depth; i++) {
+			debug("\t");
+		}
+
+		debug("%02x.%02x.%02x - ", bus->seq,
+		      PCI_DEV(pplat->devfn), PCI_FUNC(pplat->devfn));
+		debug("%04x:%04x %04x",
+		      pplat->vendor, pplat->device,
+		      PCI_CLASS(pplat->class));
+
+		dm_pci_read_config8(dev, PCI_HEADER_TYPE, &header_type);
+		if ((header_type & 0x03) == PCI_HEADER_TYPE_NORMAL) {
+			dm_pci_read_config16(dev, PCI_SUBSYSTEM_VENDOR_ID,
+					     &subsystem_vid);
+
+			dm_pci_read_config16(dev, PCI_SUBSYSTEM_ID,
+					     &subsystem_id);
+			debug(", %04x:%04x",
+			      subsystem_vid,
+			      subsystem_id);
+
+			/*
+			 * We will set the subsystem vid on some PCIe device
+			 * on every card which requires an overlay to
+			 * PCI_VENDOR_ID_NOVAWEB.
+			 * We will use the subsystem id to identify the
+			 * overlay.
+			 */
+			if (subsystem_vid == PCI_VENDOR_ID_NOVAWEB &&
+			    root_devfn) {
+				char name[16];
+				char value[48];
+
+				snprintf(name, sizeof(name),
+					"dtbo_%02x_%02x",
+					PCI_DEV(root_devfn),
+					PCI_FUNC(root_devfn));
+				snprintf(value, sizeof(value),
+					"#conf@orionlx-plus-slot-"
+					"%02x-%02x-card-%04x.dtbo",
+					PCI_DEV(root_devfn),
+					PCI_FUNC(root_devfn),
+					subsystem_id);
+				env_set(name, value);
+			}
+		}
+		debug("\n");
+
+		if (PCI_CLASS(pplat->class) == PCI_CLASS_BRIDGE_PCI) {
+			(*busnum)++;
+			if (!depth)
+				root_devfn = pplat->devfn;
+			ret = board_walk_pci(busnum, depth + 1, root_devfn);
+			if (ret)
+				return ret;
+		}
+	}
+
+	return 0;
+}
+
+int board_late_init(void)
+{
+	int ret = 0;
+	int busnum = 0;
+
+	board_walk_pci(&busnum, 0, 0);
+
+#ifdef CONFIG_FPGA
+	ret = board_fpga_init();
+#endif
+	return ret;
+}
