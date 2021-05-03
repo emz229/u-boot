@@ -32,10 +32,18 @@ class Entry_section(Entry):
     """
     def __init__(self, section, etype, node):
         Entry.__init__(self, section, etype, node)
-        self._section = bsection.Section(node.name, node)
+        self._section = bsection.Section(node.name, section, node,
+                                         section._image)
+
+    def GetFdtSet(self):
+        return self._section.GetFdtSet()
 
     def ProcessFdt(self, fdt):
         return self._section.ProcessFdt(fdt)
+
+    def ExpandEntries(self):
+        Entry.ExpandEntries(self)
+        self._section.ExpandEntries()
 
     def AddMissingProperties(self):
         Entry.AddMissingProperties(self)
@@ -59,7 +67,8 @@ class Entry_section(Entry):
     def Pack(self, offset):
         """Pack all entries into the section"""
         self._section.PackEntries()
-        self._section.SetOffset(offset)
+        if self._section._offset is None:
+            self._section.SetOffset(offset)
         self.size = self._section.GetSize()
         return super(Entry_section, self).Pack(offset)
 
@@ -92,3 +101,7 @@ class Entry_section(Entry):
 
     def GetEntries(self):
         return self._section.GetEntries()
+
+    def ExpandToLimit(self, limit):
+        super(Entry_section, self).ExpandToLimit(limit)
+        self._section.ExpandSize(self.size)

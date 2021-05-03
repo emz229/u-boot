@@ -11,6 +11,7 @@ import sys
 import fdt_util
 import libfdt
 from libfdt import QUIET_NOTFOUND
+import tools
 
 # This deals with a device tree, presenting it as an assortment of Node and
 # Prop objects, representing nodes and properties, respectively. This file
@@ -28,6 +29,66 @@ def CheckErr(errnum, msg):
         raise ValueError('Error %d: %s: %s' %
             (errnum, libfdt.fdt_strerror(errnum), msg))
 
+
+def BytesToValue(data):
+    """Converts a string of bytes into a type and value
+
+    Args:
+        A bytes value (which on Python 2 is an alias for str)
+
+    Return:
+        A tuple:
+            Type of data
+            Data, either a single element or a list of elements. Each element
+            is one of:
+                TYPE_STRING: str/bytes value from the property
+                TYPE_INT: a byte-swapped integer stored as a 4-byte str/bytes
+                TYPE_BYTE: a byte stored as a single-byte str/bytes
+    """
+    data = bytes(data)
+    size = len(data)
+    strings = data.split(b'\0')
+    is_string = True
+    count = len(strings) - 1
+    if count > 0 and not len(strings[-1]):
+        for string in strings[:-1]:
+            if not string:
+                is_string = False
+                break
+            for ch in string:
+                # Handle Python 2 treating bytes as str
+                if type(ch) == str:
+                    ch = ord(ch)
+                if ch < 32 or ch > 127:
+                    is_string = False
+                    break
+    else:
+        is_string = False
+    if is_string:
+        if count == 1: 
+            if sys.version_info[0] >= 3:  # pragma: no cover
+                return TYPE_STRING, strings[0].decode()
+            else:
+                return TYPE_STRING, strings[0]
+        else:
+            if sys.version_info[0] >= 3:  # pragma: no cover
+                return TYPE_STRING, [s.decode() for s in strings[:-1]]
+            else:
+                return TYPE_STRING, strings[:-1]
+    if size % 4:
+        if size == 1:
+            return TYPE_BYTE, tools.ToChar(data[0])
+        else:
+            return TYPE_BYTE, [tools.ToChar(ch) for ch in list(data)]
+    val = []
+    for i in range(0, size, 4):
+        val.append(data[i:i + 4])
+    if size == 4:
+        return TYPE_INT, val[0]
+    else:
+        return TYPE_INT, val
+
+
 class Prop:
     """A device tree property
 
@@ -37,17 +98,18 @@ class Prop:
             bytes
         type: Value type
     """
-    def __init__(self, node, offset, name, bytes):
+    def __init__(self, node, offset, name, data):
         self._node = node
         self._offset = offset
         self.name = name
         self.value = None
-        self.bytes = str(bytes)
-        if not bytes:
+        self.bytes = bytes(data)
+        self.dirty = False
+        if not data:
             self.type = TYPE_BOOL
             self.value = True
             return
-        self.type, self.value = self.BytesToValue(bytes)
+        self.type, self.value = BytesToValue(bytes(data))
 
     def RefreshOffset(self, poffset):
         self._offset = poffset
@@ -86,55 +148,6 @@ class Prop:
             while len(self.value) < len(newprop.value):
                 self.value.append(val)
 
-    def BytesToValue(self, bytes):
-        """Converts a string of bytes into a type and value
-
-        Args:
-            A string containing bytes
-
-        Return:
-            A tuple:
-                Type of data
-                Data, either a single element or a list of elements. Each element
-                is one of:
-                    TYPE_STRING: string value from the property
-                    TYPE_INT: a byte-swapped integer stored as a 4-byte string
-                    TYPE_BYTE: a byte stored as a single-byte string
-        """
-        bytes = str(bytes)
-        size = len(bytes)
-        strings = bytes.split('\0')
-        is_string = True
-        count = len(strings) - 1
-        if count > 0 and not strings[-1]:
-            for string in strings[:-1]:
-                if not string:
-                    is_string = False
-                    break
-                for ch in string:
-                    if ch < ' ' or ch > '~':
-                        is_string = False
-                        break
-        else:
-            is_string = False
-        if is_string:
-            if count == 1:
-                return TYPE_STRING, strings[0]
-            else:
-                return TYPE_STRING, strings[:-1]
-        if size % 4:
-            if size == 1:
-                return TYPE_BYTE, bytes[0]
-            else:
-                return TYPE_BYTE, list(bytes)
-        val = []
-        for i in range(0, size, 4):
-            val.append(bytes[i:i + 4])
-        if size == 4:
-            return TYPE_INT, val[0]
-        else:
-            return TYPE_INT, val
-
     @classmethod
     def GetEmpty(self, type):
         """Get an empty / zero value of the given type
@@ -145,7 +158,7 @@ class Prop:
         if type == TYPE_BYTE:
             return chr(0)
         elif type == TYPE_INT:
-            return struct.pack('<I', 0);
+            return struct.pack('>I', 0);
         elif type == TYPE_STRING:
             return ''
         else:
@@ -159,6 +172,55 @@ class Prop:
         """
         self._node._fdt.CheckCache()
         return self._node._fdt.GetStructOffset(self._offset)
+
+    def SetInt(self, val):
+        """Set the integer value of the property
+
+        The device tree is marked dirty so that the value will be written to
+        the block on the next sync.
+
+        Args:
+            val: Integer value (32-bit, single cell)
+        """
+        self.bytes = struct.pack('>I', val);
+        self.value = self.bytes
+        self.type = TYPE_INT
+        self.dirty = True
+
+    def SetData(self, bytes):
+        """Set the value of a property as bytes
+
+        Args:
+            bytes: New property value to set
+        """
+        self.bytes = bytes
+        self.type, self.value = BytesToValue(bytes)
+        self.dirty = True
+
+    def Sync(self, auto_resize=False):
+        """Sync property changes back to the device tree
+
+        This updates the device tree blob with any changes to this property
+        since the last sync.
+
+        Args:
+            auto_resize: Resize the device tree automatically if it does not
+                have enough space for the update
+
+        Raises:
+            FdtException if auto_resize is False and there is not enough space
+        """
+        if self._offset is None or self.dirty:
+            node = self._node
+            fdt_obj = node._fdt._fdt_obj
+            if auto_resize:
+                while fdt_obj.setprop(node.Offset(), self.name, self.bytes,
+                                    (libfdt.NOSPACE,)) == -libfdt.NOSPACE:
+                    fdt_obj.resize(fdt_obj.totalsize() + 1024)
+                    fdt_obj.setprop(node.Offset(), self.name, self.bytes)
+            else:
+                fdt_obj.setprop(node.Offset(), self.name, self.bytes)
+
 
 class Node:
     """A device tree node
@@ -284,25 +346,133 @@ class Node:
         Args:
             prop_name: Name of property
         """
-        fdt_obj = self._fdt._fdt_obj
-        if fdt_obj.setprop_u32(self.Offset(), prop_name, 0,
-                               (libfdt.NOSPACE,)) == -libfdt.NOSPACE:
-            fdt_obj.resize(fdt_obj.totalsize() + 1024)
-            fdt_obj.setprop_u32(self.Offset(), prop_name, 0)
-        self.props[prop_name] = Prop(self, -1, prop_name, '\0' * 4)
-        self._fdt.Invalidate()
+        self.props[prop_name] = Prop(self, None, prop_name,
+                                     tools.GetBytes(0, 4))
+
+    def AddEmptyProp(self, prop_name, len):
+        """Add a property with a fixed data size, for filling in later
+
+        The device tree is marked dirty so that the value will be written to
+        the blob on the next sync.
+
+        Args:
+            prop_name: Name of property
+            len: Length of data in property
+        """
+        value = tools.GetBytes(0, len)
+        self.props[prop_name] = Prop(self, None, prop_name, value)
 
     def SetInt(self, prop_name, val):
         """Update an integer property int the device tree.
 
         This is not allowed to change the size of the FDT.
 
+        The device tree is marked dirty so that the value will be written to
+        the blob on the next sync.
+
         Args:
             prop_name: Name of property
             val: Value to set
         """
-        fdt_obj = self._fdt._fdt_obj
-        fdt_obj.setprop_u32(self.Offset(), prop_name, val)
+        self.props[prop_name].SetInt(val)
+
+    def SetData(self, prop_name, val):
+        """Set the data value of a property
+
+        The device tree is marked dirty so that the value will be written to
+        the blob on the next sync.
+
+        Args:
+            prop_name: Name of property to set
+            val: Data value to set
+        """
+        self.props[prop_name].SetData(val)
+
+    def SetString(self, prop_name, val):
+        """Set the string value of a property
+
+        The device tree is marked dirty so that the value will be written to
+        the blob on the next sync.
+
+        Args:
+            prop_name: Name of property to set
+            val: String value to set (will be \0-terminated in DT)
+        """
+        if sys.version_info[0] >= 3:  # pragma: no cover
+            val = bytes(val, 'utf-8')
+        self.props[prop_name].SetData(val + b'\0')
+
+    def AddString(self, prop_name, val):
+        """Add a new string property to a node
+
+        The device tree is marked dirty so that the value will be written to
+        the blob on the next sync.
+
+        Args:
+            prop_name: Name of property to add
+            val: String value of property
+        """
+        if sys.version_info[0] >= 3:  # pragma: no cover
+            val = bytes(val, 'utf-8')
+        self.props[prop_name] = Prop(self, None, prop_name, val + b'\0')
+
+    def AddSubnode(self, name):
+        """Add a new subnode to the node
+
+        Args:
+            name: name of node to add
+
+        Returns:
+            New subnode that was created
+        """
+        path = self.path + '/' + name
+        subnode = Node(self._fdt, self, None, name, path)
+        self.subnodes.append(subnode)
+        return subnode
+
+    def Sync(self, auto_resize=False):
+        """Sync node changes back to the device tree
+
+        This updates the device tree blob with any changes to this node and its
+        subnodes since the last sync.
+
+        Args:
+            auto_resize: Resize the device tree automatically if it does not
+                have enough space for the update
+
+        Raises:
+            FdtException if auto_resize is False and there is not enough space
+        """
+        if self._offset is None:
+            # The subnode doesn't exist yet, so add it
+            fdt_obj = self._fdt._fdt_obj
+            if auto_resize:
+                while True:
+                    offset = fdt_obj.add_subnode(self.parent._offset, self.name,
+                                                (libfdt.NOSPACE,))
+                    if offset != -libfdt.NOSPACE:
+                        break
+                    fdt_obj.resize(fdt_obj.totalsize() + 1024)
+            else:
+                offset = fdt_obj.add_subnode(self.parent._offset, self.name)
+            self._offset = offset
+
+        # Sync subnodes in reverse so that we don't disturb node offsets for
+        # nodes that are earlier in the DT. This avoids an O(n^2) rescan of
+        # node offsets.
+        for node in reversed(self.subnodes):
+            node.Sync(auto_resize)
+
+        # Sync properties now, whose offsets should not have been disturbed.
+        # We do this after subnodes, since this disturbs the offsets of these
+        # properties. Note that new properties will have an offset of None here,
+        # which Python 3 cannot sort against int. So use a large value instead
+        # to ensure that the new properties are added first.
+        prop_list = sorted(self.props.values(),
+                           key=lambda prop: prop._offset or 1 << 31,
+                           reverse=True)
+        for prop in prop_list:
+            prop.Sync(auto_resize)
 
 
 class Fdt:
@@ -319,8 +489,22 @@ class Fdt:
         if self._fname:
             self._fname = fdt_util.EnsureCompiled(self._fname)
 
-            with open(self._fname) as fd:
+            with open(self._fname, 'rb') as fd:
                 self._fdt_obj = libfdt.Fdt(fd.read())
+
+    @staticmethod
+    def FromData(data):
+        """Create a new Fdt object from the given data
+
+        Args:
+            data: Device-tree data blob
+
+        Returns:
+            Fdt object containing the data
+        """
+        fdt = Fdt(None)
+        fdt._fdt_obj = libfdt.Fdt(bytes(data))
+        return fdt
 
     def LookupPhandle(self, phandle):
         """Look up a phandle
@@ -381,6 +565,19 @@ class Fdt:
         with open(self._fname, 'wb') as fd:
             fd.write(self._fdt_obj.as_bytearray())
 
+    def Sync(self, auto_resize=False):
+        """Make sure any DT changes are written to the blob
+
+        Args:
+            auto_resize: Resize the device tree automatically if it does not
+                have enough space for the update
+
+        Raises:
+            FdtException if auto_resize is False and there is not enough space
+        """
+        self._root.Sync(auto_resize)
+        self.Invalidate()
+
     def Pack(self):
         """Pack the device tree down to its minimum size
 
@@ -396,7 +593,7 @@ class Fdt:
         Returns:
             The FDT contents as a string of bytes
         """
-        return self._fdt_obj.as_bytearray()
+        return bytes(self._fdt_obj.as_bytearray())
 
     def GetFdtObj(self):
         """Get the contents of the FDT

@@ -10,6 +10,7 @@ import unittest
 
 import elf
 import test_util
+import tools
 
 binman_dir = os.path.dirname(os.path.realpath(sys.argv[0]))
 
@@ -21,7 +22,7 @@ class FakeEntry:
     """
     def __init__(self, contents_size):
         self.contents_size = contents_size
-        self.data = 'a' * contents_size
+        self.data = tools.GetBytes(ord('a'), contents_size)
 
     def GetPath(self):
         return 'entry_path'
@@ -46,6 +47,10 @@ class FakeSection:
 
 
 class TestElf(unittest.TestCase):
+    @classmethod
+    def setUpClass(self):
+        tools.SetInputDirs(['.'])
+
     def testAllSymbols(self):
         """Test that we can obtain a symbol from the ELF file"""
         fname = os.path.join(binman_dir, 'test', 'u_boot_ucode_ptr')
@@ -117,7 +122,8 @@ class TestElf(unittest.TestCase):
         section = FakeSection(sym_value=None)
         elf_fname = os.path.join(binman_dir, 'test', 'u_boot_binman_syms')
         syms = elf.LookupAndWriteSymbols(elf_fname, entry, section)
-        self.assertEqual(chr(255) * 16 + 'a' * 4, entry.data)
+        self.assertEqual(tools.GetBytes(255, 16) + tools.GetBytes(ord('a'), 4),
+                                                                  entry.data)
 
     def testDebug(self):
         """Check that enabling debug in the elf module produced debug output"""

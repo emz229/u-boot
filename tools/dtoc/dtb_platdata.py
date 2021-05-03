@@ -449,9 +449,10 @@ class DtbPlatdata(object):
                 self.out(';\n')
             self.out('};\n')
 
-        for alias, struct_name in self._aliases.iteritems():
-            self.out('#define %s%s %s%s\n'% (STRUCT_PREFIX, alias,
-                                             STRUCT_PREFIX, struct_name))
+        for alias, struct_name in self._aliases.items():
+            if alias not in sorted(structs):
+                self.out('#define %s%s %s%s\n'% (STRUCT_PREFIX, alias,
+                                                 STRUCT_PREFIX, struct_name))
 
     def output_node(self, node):
         """Output the C code for a node
@@ -497,7 +498,7 @@ class DtbPlatdata(object):
                         vals.append(get_value(prop.type, val))
 
                     # Put 8 values per line to avoid very long lines.
-                    for i in xrange(0, len(vals), 8):
+                    for i in range(0, len(vals), 8):
                         if i:
                             self.buf(',\n\t\t')
                         self.buf(', '.join(vals[i:i + 8]))

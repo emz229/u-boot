@@ -4,8 +4,10 @@
 #
 
 import command
+import glob
 import os
 import shutil
+import sys
 import tempfile
 
 import tout
@@ -119,6 +121,23 @@ def GetInputFilename(fname):
     raise ValueError("Filename '%s' not found in input path (%s) (cwd='%s')" %
                      (fname, ','.join(indir), os.getcwd()))
 
+def GetInputFilenameGlob(pattern):
+    """Return a list of filenames for use as input.
+
+    Args:
+        pattern: Filename pattern to search for
+
+    Returns:
+        A list of matching files in all input directories
+    """
+    if not indir:
+        return glob.glob(fname)
+    files = []
+    for dirname in indir:
+        pathname = os.path.join(dirname, pattern)
+        files += glob.glob(pathname)
+    return sorted(files)
+
 def Align(pos, align):
     if align:
         mask = align - 1
@@ -128,8 +147,67 @@ def Align(pos, align):
 def NotPowerOfTwo(num):
     return num and (num & (num - 1))
 
-def Run(name, *args):
-    command.Run(name, *args, cwd=outdir)
+def SetToolPaths(toolpaths):
+    """Set the path to search for tools
+
+    Args:
+        toolpaths: List of paths to search for tools executed by Run()
+    """
+    global tool_search_paths
+
+    tool_search_paths = toolpaths
+
+def PathHasFile(path_spec, fname):
+    """Check if a given filename is in the PATH
+
+    Args:
+        path_spec: Value of PATH variable to check
+        fname: Filename to check
+
+    Returns:
+        True if found, False if not
+    """
+    for dir in path_spec.split(':'):
+        if os.path.exists(os.path.join(dir, fname)):
+            return True
+    return False
+
+def Run(name, *args, **kwargs):
+    """Run a tool with some arguments
+
+    This runs a 'tool', which is a program used by binman to process files and
+    perhaps produce some output. Tools can be located on the PATH or in a
+    search path.
+
+    Args:
+        name: Command name to run
+        args: Arguments to the tool
+
+    Returns:
+        CommandResult object
+    """
+    try:
+        binary = kwargs.get('binary')
+        env = None
+        if tool_search_paths:
+            env = dict(os.environ)
+            env['PATH'] = ':'.join(tool_search_paths) + ':' + env['PATH']
+        all_args = (name,) + args
+        result = command.RunPipe([all_args], capture=True, capture_stderr=True,
+                                 env=env, raise_on_error=False, binary=binary)
+        if result.return_code:
+            raise Exception("Error %d running '%s': %s" %
+               (result.return_code,' '.join(all_args),
+                result.stderr))
+        return result.stdout
+    except:
+        if env and not PathHasFile(env['PATH'], name):
+            msg = "Please install tool '%s'" % name
+            package = packages.get(name)
+            if package:
+                 msg += " (e.g. from package '%s')" % package
+            raise ValueError(msg)
+        raise
 
 def Filename(fname):
     """Resolve a file path to an absolute path.
@@ -191,3 +269,183 @@ def WriteFile(fname, data):
                    #(fname, len(data), len(data)))
     with open(Filename(fname), 'wb') as fd:
         fd.write(data)
+
+def GetBytes(byte, size):
+    """Get a string of bytes of a given size
+
+    This handles the unfortunate different between Python 2 and Python 2.
+
+    Args:
+        byte: Numeric byte value to use
+        size: Size of bytes/string to return
+
+    Returns:
+        A bytes type with 'byte' repeated 'size' times
+    """
+    if sys.version_info[0] >= 3:
+        data = bytes([byte]) * size
+    else:
+        data = chr(byte) * size
+    return data
+
+def ToUnicode(val):
+    """Make sure a value is a unicode string
+
+    This allows some amount of compatibility between Python 2 and Python3. For
+    the former, it returns a unicode object.
+
+    Args:
+        val: string or unicode object
+
+    Returns:
+        unicode version of val
+    """
+    if sys.version_info[0] >= 3:
+        return val
+    return val if isinstance(val, unicode) else val.decode('utf-8')
+
+def FromUnicode(val):
+    """Make sure a value is a non-unicode string
+
+    This allows some amount of compatibility between Python 2 and Python3. For
+    the former, it converts a unicode object to a string.
+
+    Args:
+        val: string or unicode object
+
+    Returns:
+        non-unicode version of val
+    """
+    if sys.version_info[0] >= 3:
+        return val
+    return val if isinstance(val, str) else val.encode('utf-8')
+
+def ToByte(ch):
+    """Convert a character to an ASCII value
+
+    This is useful because in Python 2 bytes is an alias for str, but in
+    Python 3 they are separate types. This function converts the argument to
+    an ASCII value in either case.
+
+    Args:
+        ch: A string (Python 2) or byte (Python 3) value
+
+    Returns:
+        integer ASCII value for ch
+    """
+    return ord(ch) if type(ch) == str else ch
+
+def ToChar(byte):
+    """Convert a byte to a character
+
+    This is useful because in Python 2 bytes is an alias for str, but in
+    Python 3 they are separate types. This function converts an ASCII value to
+    a value with the appropriate type in either case.
+
+    Args:
+        byte: A byte or str value
+    """
+    return chr(byte) if type(byte) != str else byte
+
+def ToChars(byte_list):
+    """Convert a list of bytes to a str/bytes type
+
+    Args:
+        byte_list: List of ASCII values representing the string
+
+    Returns:
+        string made by concatenating all the ASCII values
+    """
+    return ''.join([chr(byte) for byte in byte_list])
+
+def ToBytes(string):
+    """Convert a str type into a bytes type
+
+    Args:
+        string: string to convert
+
+    Returns:
+        Python 3: A bytes type
+        Python 2: A string type
+    """
+    if sys.version_info[0] >= 3:
+        return string.encode('utf-8')
+    return string
+
+def ToString(bval):
+    """Convert a bytes type into a str type
+
+    Args:
+        bval: bytes value to convert
+
+    Returns:
+        Python 3: A bytes type
+        Python 2: A string type
+    """
+    return bval.decode('utf-8')
+
+def Compress(indata, algo, with_header=True):
+    """Compress some data using a given algorithm
+
+    Note that for lzma this uses an old version of the algorithm, not that
+    provided by xz.
+
+    This requires 'lz4' and 'lzma_alone' tools. It also requires an output
+    directory to be previously set up, by calling PrepareOutputDir().
+
+    Args:
+        indata: Input data to compress
+        algo: Algorithm to use ('none', 'gzip', 'lz4' or 'lzma')
+
+    Returns:
+        Compressed data
+    """
+    if algo == 'none':
+        return indata
+    fname = GetOutputFilename('%s.comp.tmp' % algo)
+    WriteFile(fname, indata)
+    if algo == 'lz4':
+        data = Run('lz4', '--no-frame-crc', '-c', fname, binary=True)
+    # cbfstool uses a very old version of lzma
+    elif algo == 'lzma':
+        outfname = GetOutputFilename('%s.comp.otmp' % algo)
+        Run('lzma_alone', 'e', fname, outfname, '-lc1', '-lp0', '-pb0', '-d8')
+        data = ReadFile(outfname)
+    elif algo == 'gzip':
+        data = Run('gzip', '-c', fname, binary=True)
+    else:
+        raise ValueError("Unknown algorithm '%s'" % algo)
+    return data
+
+def Decompress(indata, algo):
+    """Decompress some data using a given algorithm
+
+    Note that for lzma this uses an old version of the algorithm, not that
+    provided by xz.
+
+    This requires 'lz4' and 'lzma_alone' tools. It also requires an output
+    directory to be previously set up, by calling PrepareOutputDir().
+
+    Args:
+        indata: Input data to decompress
+        algo: Algorithm to use ('none', 'gzip', 'lz4' or 'lzma')
+
+    Returns:
+        Compressed data
+    """
+    if algo == 'none':
+        return indata
+    fname = GetOutputFilename('%s.decomp.tmp' % algo)
+    with open(fname, 'wb') as fd:
+        fd.write(indata)
+    if algo == 'lz4':
+        data = Run('lz4', '-dc', fname, binary=True)
+    elif algo == 'lzma':
+        outfname = GetOutputFilename('%s.decomp.otmp' % algo)
+        Run('lzma_alone', 'd', fname, outfname)
+        data = ReadFile(outfname, binary=True)
+    elif algo == 'gzip':
+        data = Run('gzip', '-cd', fname, binary=True)
+    else:
+        raise ValueError("Unknown algorithm '%s'" % algo)
+    return data

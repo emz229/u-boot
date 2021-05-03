@@ -13,12 +13,19 @@ import fdt
 import fdt_util
 import tools
 
+entry = None
+
 class TestEntry(unittest.TestCase):
+    def setUp(self):
+        tools.PrepareOutputDir(None)
+
+    def tearDown(self):
+        tools.FinaliseOutputDir()
+
     def GetNode(self):
         binman_dir = os.path.dirname(os.path.realpath(sys.argv[0]))
-        tools.PrepareOutputDir(None)
         fname = fdt_util.EnsureCompiled(
-            os.path.join(binman_dir,('test/05_simple.dts')))
+            os.path.join(binman_dir,('test/005_simple.dts')))
         dtb = fdt.FdtScan(fname)
         return dtb.GetNode('/binman/u-boot')
 
@@ -33,10 +40,23 @@ class TestEntry(unittest.TestCase):
     def test2EntryImportLib(self):
         del sys.modules['importlib']
         global entry
-        reload(entry)
+        if entry:
+            reload(entry)
+        else:
+            import entry
         entry.Entry.Create(None, self.GetNode(), 'u-boot-spl')
-        tools._RemoveOutputDir()
         del entry
+
+    def _ReloadEntry(self):
+        global entry
+        if entry:
+            if sys.version_info[0] >= 3:
+                import importlib
+                importlib.reload(entry)
+            else:
+                reload(entry)
+        else:
+            import entry
 
     def testEntryContents(self):
         """Test the Entry bass class"""
@@ -54,6 +74,22 @@ class TestEntry(unittest.TestCase):
         self.assertIn("Unknown entry type 'invalid-name' in node "
                       "'invalid-path'", str(e.exception))
 
+    def testUniqueName(self):
+        """Test Entry.GetUniqueName"""
+        import entry
+        Node = collections.namedtuple('Node', ['name', 'parent'])
+        base_node = Node('root', None)
+        base_entry = entry.Entry(None, None, base_node, read_node=False)
+        self.assertEqual('root', base_entry.GetUniqueName())
+        sub_node = Node('subnode', base_node)
+        sub_entry = entry.Entry(None, None, sub_node, read_node=False)
+        self.assertEqual('root.subnode', sub_entry.GetUniqueName())
+
+    def testGetDefaultFilename(self):
+        """Trivial test for this base class function"""
+        import entry
+        base_entry = entry.Entry(None, None, None, read_node=False)
+        self.assertIsNone(base_entry.GetDefaultFilename())
 
 if __name__ == "__main__":
     unittest.main()

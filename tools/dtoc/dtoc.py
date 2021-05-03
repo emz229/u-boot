@@ -25,6 +25,8 @@ options. For more information about the use of this options and tool please
 see doc/driver-model/of-plat.txt
 """
 
+from __future__ import print_function
+
 from optparse import OptionParser
 import os
 import sys
@@ -59,11 +61,11 @@ def run_tests(args):
             suite = unittest.TestLoader().loadTestsFromTestCase(module)
         suite.run(result)
 
-    print result
+    print(result)
     for _, err in result.errors:
-        print err
+        print(err)
     for _, err in result.failures:
-        print err
+        print(err)
 
 def RunTestCoverage():
     """Run the tests and check that we get 100% coverage"""
@@ -84,6 +86,8 @@ parser.add_option('--include-disabled', action='store_true',
                   help='Include disabled nodes')
 parser.add_option('-o', '--output', action='store', default='-',
                   help='Select output filename')
+parser.add_option('-P', '--processes', type=int,
+                  help='set number of processes to use for running tests')
 parser.add_option('-t', '--test', action='store_true', dest='test',
                   default=False, help='run tests')
 parser.add_option('-T', '--test-coverage', action='store_true',

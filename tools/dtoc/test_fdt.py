@@ -4,6 +4,8 @@
 # Written by Simon Glass <sjg@chromium.org>
 #
 
+from __future__ import print_function
+
 from optparse import OptionParser
 import glob
 import os
@@ -45,7 +47,7 @@ def _GetPropertyValue(dtb, node, prop_name):
     # Add 12, which is sizeof(struct fdt_property), to get to start of data
     offset = prop.GetOffset() + 12
     data = dtb.GetContents()[offset:offset + len(prop.value)]
-    return prop, [chr(x) for x in data]
+    return prop, [tools.ToChar(x) for x in data]
 
 
 class TestFdt(unittest.TestCase):
@@ -60,7 +62,7 @@ class TestFdt(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        tools._FinaliseForTest()
+        tools.FinaliseOutputDir()
 
     def setUp(self):
         self.dtb = fdt.FdtScan('tools/dtoc/dtoc_test_simple.dts')
@@ -128,7 +130,7 @@ class TestNode(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        tools._FinaliseForTest()
+        tools.FinaliseOutputDir()
 
     def setUp(self):
         self.dtb = fdt.FdtScan('tools/dtoc/dtoc_test_simple.dts')
@@ -209,7 +211,7 @@ class TestProp(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        tools._FinaliseForTest()
+        tools.FinaliseOutputDir()
 
     def setUp(self):
         self.dtb = fdt.FdtScan('tools/dtoc/dtoc_test_simple.dts')
@@ -277,7 +279,7 @@ class TestProp(unittest.TestCase):
         """Tests the GetEmpty() function for the various supported types"""
         self.assertEqual(True, fdt.Prop.GetEmpty(fdt.TYPE_BOOL))
         self.assertEqual(chr(0), fdt.Prop.GetEmpty(fdt.TYPE_BYTE))
-        self.assertEqual(chr(0) * 4, fdt.Prop.GetEmpty(fdt.TYPE_INT))
+        self.assertEqual(tools.GetBytes(0, 4), fdt.Prop.GetEmpty(fdt.TYPE_INT))
         self.assertEqual('', fdt.Prop.GetEmpty(fdt.TYPE_STRING))
 
     def testGetOffset(self):
@@ -337,6 +339,7 @@ class TestProp(unittest.TestCase):
         self.node.AddZeroProp('one')
         self.node.AddZeroProp('two')
         self.node.AddZeroProp('three')
+        self.dtb.Sync(auto_resize=True)
 
         # Updating existing properties should be OK, since the device-tree size
         # does not change
@@ -344,11 +347,75 @@ class TestProp(unittest.TestCase):
         self.node.SetInt('one', 1)
         self.node.SetInt('two', 2)
         self.node.SetInt('three', 3)
+        self.dtb.Sync(auto_resize=False)
 
         # This should fail since it would need to increase the device-tree size
+        self.node.AddZeroProp('four')
         with self.assertRaises(libfdt.FdtException) as e:
-            self.node.SetInt('four', 4)
+            self.dtb.Sync(auto_resize=False)
         self.assertIn('FDT_ERR_NOSPACE', str(e.exception))
+        self.dtb.Sync(auto_resize=True)
+
+    def testAddNode(self):
+        self.fdt.pack()
+        self.node.AddSubnode('subnode')
+        with self.assertRaises(libfdt.FdtException) as e:
+            self.dtb.Sync(auto_resize=False)
+        self.assertIn('FDT_ERR_NOSPACE', str(e.exception))
+
+        self.dtb.Sync(auto_resize=True)
+        offset = self.fdt.path_offset('/spl-test/subnode')
+        self.assertTrue(offset > 0)
+
+    def testAddMore(self):
+        """Test various other methods for adding and setting properties"""
+        self.node.AddZeroProp('one')
+        self.dtb.Sync(auto_resize=True)
+        data = self.fdt.getprop(self.node.Offset(), 'one')
+        self.assertEqual(0, fdt32_to_cpu(data))
+
+        self.node.SetInt('one', 1)
+        self.dtb.Sync(auto_resize=False)
+        data = self.fdt.getprop(self.node.Offset(), 'one')
+        self.assertEqual(1, fdt32_to_cpu(data))
+
+        val = '123' + chr(0) + '456'
+        self.node.AddString('string', val)
+        self.dtb.Sync(auto_resize=True)
+        data = self.fdt.getprop(self.node.Offset(), 'string')
+        self.assertEqual(tools.ToBytes(val) + b'\0', data)
+
+        self.fdt.pack()
+        self.node.SetString('string', val + 'x')
+        with self.assertRaises(libfdt.FdtException) as e:
+            self.dtb.Sync(auto_resize=False)
+        self.assertIn('FDT_ERR_NOSPACE', str(e.exception))
+        self.node.SetString('string', val[:-1])
+
+        prop = self.node.props['string']
+        prop.SetData(tools.ToBytes(val))
+        self.dtb.Sync(auto_resize=False)
+        data = self.fdt.getprop(self.node.Offset(), 'string')
+        self.assertEqual(tools.ToBytes(val), data)
+
+        self.node.AddEmptyProp('empty', 5)
+        self.dtb.Sync(auto_resize=True)
+        prop = self.node.props['empty']
+        prop.SetData(tools.ToBytes(val))
+        self.dtb.Sync(auto_resize=False)
+        data = self.fdt.getprop(self.node.Offset(), 'empty')
+        self.assertEqual(tools.ToBytes(val), data)
+
+        self.node.SetData('empty', b'123')
+        self.assertEqual(b'123', prop.bytes)
+
+    def testFromData(self):
+        dtb2 = fdt.Fdt.FromData(self.dtb.GetContents())
+        self.assertEqual(dtb2.GetContents(), self.dtb.GetContents())
+
+        self.node.AddEmptyProp('empty', 5)
+        self.dtb.Sync(auto_resize=True)
+        self.assertTrue(dtb2.GetContents() != self.dtb.GetContents())
 
 
 class TestFdtUtil(unittest.TestCase):
@@ -361,6 +428,10 @@ class TestFdtUtil(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         tools.PrepareOutputDir(None)
+
+    @classmethod
+    def tearDownClass(cls):
+        tools.FinaliseOutputDir()
 
     def setUp(self):
         self.dtb = fdt.FdtScan('tools/dtoc/dtoc_test_simple.dts')
@@ -436,9 +507,6 @@ class TestFdtUtil(unittest.TestCase):
         dtb = fdt_util.EnsureCompiled('tools/dtoc/dtoc_test_simple.dts')
         self.assertEqual(dtb, fdt_util.EnsureCompiled(dtb))
 
-    def testGetPlainBytes(self):
-        self.assertEqual('fred', fdt_util.get_plain_bytes('fred'))
-
 
 def RunTestCoverage():
     """Run the tests and check that we get 100% coverage"""
@@ -466,11 +534,11 @@ def RunTests(args):
             suite = unittest.TestLoader().loadTestsFromTestCase(module)
         suite.run(result)
 
-    print result
+    print(result)
     for _, err in result.errors:
-        print err
+        print(err)
     for _, err in result.failures:
-        print err
+        print(err)
 
 if __name__ != '__main__':
     sys.exit(1)
@@ -478,6 +546,8 @@ if __name__ != '__main__':
 parser = OptionParser()
 parser.add_option('-B', '--build-dir', type='string', default='b',
         help='Directory containing the build output')
+parser.add_option('-P', '--processes', type=int,
+                  help='set number of processes to use for running tests')
 parser.add_option('-t', '--test', action='store_true', dest='test',
                   default=False, help='run tests')
 parser.add_option('-T', '--test-coverage', action='store_true',

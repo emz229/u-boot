@@ -92,6 +92,8 @@
 		"u-boot-version=\\\\\"\"${ver}\"\\\\\" " \
 		"${scsiconfigargs} " \
 		"fs_sha1sum=${fs_sha1sum} fs_sha256sum=${fs_sha256sum} fs_len=${fs_len} ${optargs};" \
+		"bootm ${loadaddr}#conf@orionlx-plus.dtb" \
+		"${dtbo_1c_01}${dtbo_1c_02}${dtbo_1c_03};" \
 		"bootm ${loadaddr}\0" \
 	"extendfspcr=" \
 		"if test -n ${fs_sha1sum}; then " \
@@ -244,6 +246,8 @@
 			"if run checkminversion; then " \
 				"run extendfitpcr;" \
 				"run extendfspcr;" \
+				"bootm ${loadaddr}#conf@orionlx-plus.dtb" \
+				"${dtbo_1c_01}${dtbo_1c_02}${dtbo_1c_03};" \
 				"bootm $loadaddr;" \
 			"fi;" \
 		"else;" \
@@ -270,6 +274,8 @@
 			"fi;" \
 			"run extendfitpcr;" \
 			"run extendfspcr;" \
+			"bootm ${loadaddr}#conf@orionlx-plus.dtb" \
+			"${dtbo_1c_01}${dtbo_1c_02}${dtbo_1c_03};" \
 			"bootm $loadaddr;" \
 		"fi;" \
 	"fi;"
