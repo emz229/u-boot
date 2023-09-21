@@ -683,4 +683,9 @@ config VIDEO_DT_SIMPLEFB
 	  The video output is initialized by U-Boot, and kept by the
 	  kernel.
 
+config VIDEO_INTEL_BAYTRAIL
+	bool "Enable GMBUS support for Intel Baytrail SOCs"
+	help
+	  Enables support for interfacing with monitors to gather EDID
+	  information to aid video bringup.
 endmenu
