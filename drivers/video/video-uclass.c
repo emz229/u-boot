@@ -76,11 +76,11 @@ int video_reserve(ulong *addrp)
 	     dev;
 	     uclass_find_next_device(&dev)) {
 		size = alloc_fb(dev, addrp);
-		debug("%s: Reserving %lx bytes at %lx for video device '%s'\n",
+		printf("%s: Reserving %lx bytes at %lx for video device '%s'\n",
 		      __func__, size, *addrp, dev->name);
 	}
 	gd->video_bottom = *addrp;
-	debug("Video frame buffers from %lx to %lx\n", gd->video_bottom,
+	printf("Video frame buffers from %lx to %lx\n", gd->video_bottom,
 	      gd->video_top);
 
 	return 0;

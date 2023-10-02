@@ -77,7 +77,7 @@ static int pci_rom_probe(struct udevice *dev, struct pci_rom_header **hdrp)
 	vendev = pplat->vendor << 16 | pplat->device;
 	mapped_vendev = board_map_oprom_vendev(vendev);
 	if (vendev != mapped_vendev)
-		debug("Device ID mapped to %#08x\n", mapped_vendev);
+		printf("Device ID mapped to %#08x\n", mapped_vendev);
 
 #ifdef CONFIG_VGA_BIOS_ADDR
 	rom_address = CONFIG_VGA_BIOS_ADDR;
@@ -85,7 +85,7 @@ static int pci_rom_probe(struct udevice *dev, struct pci_rom_header **hdrp)
 
 	dm_pci_read_config32(dev, PCI_ROM_ADDRESS, &rom_address);
 	if (rom_address == 0x00000000 || rom_address == 0xffffffff) {
-		debug("%s: rom_address=%x\n", __func__, rom_address);
+		printf("%s: rom_address=%x\n", __func__, rom_address);
 		return -ENOENT;
 	}
 
@@ -93,10 +93,10 @@ static int pci_rom_probe(struct udevice *dev, struct pci_rom_header **hdrp)
 	dm_pci_write_config32(dev, PCI_ROM_ADDRESS,
 			      rom_address | PCI_ROM_ADDRESS_ENABLE);
 #endif
-	debug("Option ROM address %x\n", rom_address);
+	printf("Option ROM address %x\n", rom_address);
 	rom_header = (struct pci_rom_header *)(unsigned long)rom_address;
 
-	debug("PCI expansion ROM, signature %#04x, INIT size %#04x, data ptr %#04x\n",
+	printf("PCI expansion ROM, signature %#04x, INIT size %#04x, data ptr %#04x\n",
 	      le16_to_cpu(rom_header->signature),
 	      rom_header->size * 512, le16_to_cpu(rom_header->data));
 
@@ -114,7 +114,7 @@ static int pci_rom_probe(struct udevice *dev, struct pci_rom_header **hdrp)
 	rom_vendor = le16_to_cpu(rom_data->vendor);
 	rom_device = le16_to_cpu(rom_data->device);
 
-	debug("PCI ROM image, vendor ID %04x, device ID %04x,\n",
+	printf("PCI ROM image, vendor ID %04x, device ID %04x,\n",
 	      rom_vendor, rom_device);
 
 	/* If the device id is mapped, a mismatch is expected */
@@ -126,11 +126,11 @@ static int pci_rom_probe(struct udevice *dev, struct pci_rom_header **hdrp)
 	}
 
 	rom_class = (le16_to_cpu(rom_data->class_hi) << 8) | rom_data->class_lo;
-	debug("PCI ROM image, Class Code %06x, Code Type %02x\n",
+	printf("PCI ROM image, Class Code %06x, Code Type %02x\n",
 	      rom_class, rom_data->type);
 
 	if (pplat->class != rom_class) {
-		debug("Class Code mismatch ROM %06x, dev %06x\n",
+		printf("Class Code mismatch ROM %06x, dev %06x\n",
 		      rom_class, pplat->class);
 	}
 	*hdrp = rom_header;
@@ -185,14 +185,14 @@ static int pci_rom_load(struct pci_rom_header *rom_header,
 	if (target != rom_header) {
 		ulong start = get_timer(0);
 
-		debug("Copying VGA ROM Image from %p to %p, 0x%x bytes\n",
+		printf("Copying VGA ROM Image from %p to %p, 0x%x bytes\n",
 		      rom_header, target, rom_size);
 		memcpy(target, rom_header, rom_size);
 		if (memcmp(target, rom_header, rom_size)) {
 			printf("VGA ROM copy failed\n");
 			return -EFAULT;
 		}
-		debug("Copy took %lums\n", get_timer(start));
+		printf("Copy took %lums\n", get_timer(start));
 	}
 	*ram_headerp = target;
 
@@ -241,7 +241,7 @@ int dm_pci_run_vga_bios(struct udevice *dev, int (*int15_handler)(void),
 
 	/* Only execute VGA ROMs */
 	if (((pplat->class >> 8) ^ PCI_CLASS_DISPLAY_VGA) & 0xff00) {
-		debug("%s: Class %#x, should be %#x\n", __func__, pplat->class,
+		printf("%s: Class %#x, should be %#x\n", __func__, pplat->class,
 		      PCI_CLASS_DISPLAY_VGA);
 		return -ENODEV;
 	}
@@ -266,7 +266,7 @@ int dm_pci_run_vga_bios(struct udevice *dev, int (*int15_handler)(void),
 		defined(CONFIG_FRAMEBUFFER_VESA_MODE)
 	vesa_mode = CONFIG_FRAMEBUFFER_VESA_MODE;
 #endif
-	debug("Selected vesa mode %#x\n", vesa_mode);
+	printf("Selected vesa mode %#x\n", vesa_mode);
 
 	if (exec_method & PCI_ROM_USE_NATIVE) {
 #ifdef CONFIG_X86
@@ -313,7 +313,7 @@ int dm_pci_run_vga_bios(struct udevice *dev, int (*int15_handler)(void),
 				&mode_info);
 #endif
 	}
-	debug("Final vesa mode %#x\n", mode_info.video_mode);
+	printf("Final vesa mode %#x\n", mode_info.video_mode);
 	ret = 0;
 
 err:
@@ -364,13 +364,13 @@ int vbe_setup_video(struct udevice *dev, int (*int15_handler)(void))
 					PCI_ROM_ALLOW_FALLBACK);
 	bootstage_accum(BOOTSTAGE_ID_ACCUM_LCD);
 	if (ret) {
-		debug("failed to run video BIOS: %d\n", ret);
+		printf("failed to run video BIOS: %d\n", ret);
 		return ret;
 	}
 
 	ret = vbe_setup_video_priv(&mode_info.vesa, uc_priv, plat);
 	if (ret) {
-		debug("No video mode configured\n");
+		printf("No video mode configured\n");
 		return ret;
 	}
 
