@@ -745,9 +745,21 @@ static int do_env_save(cmd_tbl_t *cmdtp, int flag, int argc,
 	return env_save() ? 1 : 0;
 }
 
+static int do_env_savevars(cmd_tbl_t *cmdtp, int flag, int argc,
+		       char * const argv[])
+{
+	return env_savevars() ? 1 : 0;
+}
+
 U_BOOT_CMD(
 	saveenv, 1, 0,	do_env_save,
 	"save environment variables to persistent storage",
+	""
+);
+
+U_BOOT_CMD(
+	savevars, 1, 0,	do_env_savevars,
+	"save specific environment variables to persistent storage",
 	""
 );
 #endif
@@ -1195,6 +1207,7 @@ static cmd_tbl_t cmd_env_sub[] = {
 #endif
 #if defined(CONFIG_CMD_SAVEENV) && !defined(CONFIG_ENV_IS_NOWHERE)
 	U_BOOT_CMD_MKENT(save, 1, 0, do_env_save, "", ""),
+	U_BOOT_CMD_MKENT(savevars, 1, 0, do_env_savevars, "", ""),
 #endif
 	U_BOOT_CMD_MKENT(set, CONFIG_SYS_MAXARGS, 0, do_env_set, "", ""),
 #if defined(CONFIG_CMD_ENV_EXISTS)

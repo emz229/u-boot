@@ -26,12 +26,16 @@
 #define CONFIG_CMD_HASH
 
 #undef CONFIG_ENV_SIZE
-#define CONFIG_ENV_SIZE			0x8000
+#define CONFIG_ENV_SIZE			0x2000
 
-#undef CONFIG_ENV_IS_IN_SPI_FLASH
-#define CONFIG_ENV_IS_NOWHERE
+#undef CONFIG_SYS_CBSIZE
+#define CONFIG_SYS_CBSIZE		1024
+#undef CONFIG_SYS_MAXARGS
+#define CONFIG_SYS_MAXARGS		128
+
 #define CONFIG_ENV_SECT_SIZE		0x1000
-#define CONFIG_ENV_OFFSET		0x006ef000
+#define CONFIG_ENV_OFFSET              0x007FA000
+#define SOMTYPE_VAR_OFFSET             ((0x7FFFFF - CONFIG_ENV_OFFSET) - 0x4)
 
 #undef CONFIG_SYS_BOOTM_LEN
 #define CONFIG_SYS_BOOTM_LEN		(64 << 20)
@@ -54,6 +58,46 @@
 		"setenv bootpart part3;" \
 		"setenv usebootfile ${altbootfile};" \
 		"setenv usefsfile ${altfsfile};\0" \
+	"somtest=i2c dev 0;" \
+		"if i2c probe 0x21;" \
+			"then echo Detected Advantech SOM;" \
+			"setenv somtype-current advantech;" \
+			"run sompersistance;" \
+		"else;" \
+			"echo Detected ADLink SOM;" \
+			"setenv somtype-current adlink;" \
+			"run sompersistance;" \
+		"fi;\0" \
+	"sompersistance=if env exists somtype;" \
+				"then if test ${somtype-current} = ${somtype};" \
+					"then echo SOM types match...;" \
+				"else;" \
+					"echo SOM types do NOT match!;" \
+					"run setsom;" \
+				"fi;" \
+			"else;" \
+				"run setsom;" \
+			"fi;\0" \
+	"setsom=if sf probe 0;" \
+		"then sf protect unlock 0 800000;" \
+			"echo Flash Unlocked, saving environment!;" \
+			"setenv somtype ${somtype-current};" \
+			"setenv somtype-current;" \
+			"savevars;" \
+			ORIONLX_PROTECT_FLASH \
+			"reset;" \
+		"else;" \
+			"echo FAILED to save environment!;" \
+			"reset;" \
+		"fi;\0" \
+	"oriontype=i2c dev 0;" \
+		"if i2c probe 0x27;" \
+			"then echo Detected OrionSX;" \
+			"true;" \
+		"else;" \
+			"echo Device not present at 0x27, setting OrionLX-Plus;" \
+			"false;" \
+		"fi;\0" \
 	"loadimage=" \
 		"if ext4load ${bootmediatype} 0:1 ${loadaddr} ${usefsfile}; then " \
 			"echo loaded ${usefsfile};" \
@@ -92,8 +136,12 @@
 		"u-boot-version=\\\\\"\"${ver}\"\\\\\" " \
 		"${scsiconfigargs} " \
 		"fs_sha1sum=${fs_sha1sum} fs_sha256sum=${fs_sha256sum} fs_len=${fs_len} ${optargs};" \
-		"bootm ${loadaddr}#conf@orionlx-plus.dtb" \
-		"${dtbo_1c_01}${dtbo_1c_02}${dtbo_1c_03};" \
+		"if run oriontype; then " \
+			"bootm ${loadaddr}#conf@orionsx.dtb;" \
+		"else;" \
+			"bootm ${loadaddr}#conf@orionlx-plus.dtb" \
+			"${dtbo_1c_01}${dtbo_1c_02}${dtbo_1c_03};" \
+		"fi;" \		
 		"bootm ${loadaddr}\0" \
 	"extendfspcr=" \
 		"if test -n ${fs_sha1sum}; then " \
@@ -232,6 +280,7 @@
 
 #ifdef CONFIG_ORIONLX_PLUS_USB_BOOT
 #define ORIONLX_PLUS_USB_BOOT \
+	"run somtest;" \
 	"usb start;" \
 	"setenv bootmediatype usb;" \
 	"setenv usebootfile ${bootfile};" \
@@ -246,8 +295,12 @@
 			"if run checkminversion; then " \
 				"run extendfitpcr;" \
 				"run extendfspcr;" \
-				"bootm ${loadaddr}#conf@orionlx-plus.dtb" \
-				"${dtbo_1c_01}${dtbo_1c_02}${dtbo_1c_03};" \
+				"if run oriontype; then " \
+					"bootm ${loadaddr}#conf@orionsx.dtb;" \
+				"else;" \
+					"bootm ${loadaddr}#conf@orionlx-plus.dtb" \
+					"${dtbo_1c_01}${dtbo_1c_02}${dtbo_1c_03};" \
+				"fi;" \			
 				"bootm $loadaddr;" \
 			"fi;" \
 		"else;" \
@@ -274,8 +327,12 @@
 			"fi;" \
 			"run extendfitpcr;" \
 			"run extendfspcr;" \
-			"bootm ${loadaddr}#conf@orionlx-plus.dtb" \
-			"${dtbo_1c_01}${dtbo_1c_02}${dtbo_1c_03};" \
+			"if run oriontype; then " \
+				"bootm ${loadaddr}#conf@orionsx.dtb;" \
+			"else;" \
+				"bootm ${loadaddr}#conf@orionlx-plus.dtb" \
+				"${dtbo_1c_01}${dtbo_1c_02}${dtbo_1c_03};" \
+			"fi;" \
 			"bootm $loadaddr;" \
 		"fi;" \
 	"fi;"
@@ -284,11 +341,6 @@
 #endif
 
 #define ORIONLX_PROTECT_FLASH \
-	"if sf protect lock 0 800000; then " \
-		"echo sf protect lock passed;" \
-	"else;" \
-		"echo sf protect lock failed;" \
-	"fi;" \
 	"if sf sr-protect hardware; then " \
 		"echo sf sr-protect passed;" \
 	"else;" \
@@ -297,6 +349,7 @@
 
 #undef CONFIG_BOOTCOMMAND
 #define CONFIG_BOOTCOMMAND \
+	"run somtest;" \
 	"scsi scan;" \
 	"if date; then " \
 		"echo valid date/time read from RTC;" \
@@ -311,6 +364,7 @@
 		"echo sf probe failed;" \
 		"reset;" \
 	"fi;" \
+	"run oriontype;" \
 	ORIONLX_PROTECT_FLASH \
 	"run extendrompcr;" \
 	ORIONLX_PLUS_USB_BOOT \

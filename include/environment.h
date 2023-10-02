@@ -186,6 +186,13 @@ enum env_valid {
 	ENV_REDUND,	/* Redundant environment is valid */
 };
 
+/* Add future SOM Vendors here */
+enum env_vendor_flags {
+	ENV_VENDOR_INVALID,
+	ENV_VENDOR_ADVANTECH,
+	ENV_VENDOR_ADLINK,
+};
+
 enum env_location {
 	ENVL_UNKNOWN,
 	ENVL_EEPROM,
@@ -210,6 +217,7 @@ enum env_operation {
 	ENVOP_INIT,	/* we want to call the init function */
 	ENVOP_LOAD,	/* we want to call the load function */
 	ENVOP_SAVE,	/* we want to call the save function */
+	ENVOP_SAVEVARS, /* we want to call the save variables function */
 };
 
 struct env_driver {
@@ -234,6 +242,13 @@ struct env_driver {
 	 * @return 0 if OK, -ve on error
 	 */
 	int (*save)(void);
+
+	/**
+	 * savevars() - Save specific variables of the environment to storage
+	 *
+	 * @return 0 if OK, -ve on error
+	 */
+	int (*savevars)(void);
 
 	/**
 	 * init() - Set up the initial pre-relocation environment
@@ -283,6 +298,9 @@ int env_import(const char *buf, int check);
 /* Export from hash table into binary representation */
 int env_export(env_t *env_out);
 
+/* Export specific variables into binary representation */
+int env_export_vars(env_t *env_out, void *variables, int length);
+
 #ifdef CONFIG_SYS_REDUNDAND_ENVIRONMENT
 /* Select and import one of two redundant environments */
 int env_import_redund(const char *buf1, int buf1_status,
@@ -312,6 +330,13 @@ int env_load(void);
  * @return 0 if OK, -ve on error
  */
 int env_save(void);
+
+/**
+ * env_savevars() - Save specific environment variables to storage
+ *
+ * @return 0 if OK, -ve on error
+ */
+int env_savevars(void);
 
 /**
  * env_fix_drivers() - Updates envdriver as per relocation

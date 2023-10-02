@@ -148,6 +148,10 @@ static void dump_regs(struct irq_regs *regs)
 
 static void do_exception(struct irq_regs *regs)
 {
+	if (regs->irq_id == 2){
+		/* if NMI Interrupt, ignore! */
+		return;
+	}
 	printf("%s\n", exceptions[regs->irq_id]);
 	dump_regs(regs);
 	hang();

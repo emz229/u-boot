@@ -238,6 +238,34 @@ int env_save(void)
 	return -ENODEV;
 }
 
+int env_savevars(void)
+{
+	struct env_driver *drv;
+
+	drv = env_driver_lookup(ENVOP_SAVEVARS, gd->env_load_prio);
+	if (drv) {
+		int ret;
+
+		if (!drv->savevars) //If not supported return ENODEV
+			return -ENODEV;
+
+		if (!env_has_inited(drv->location))
+			return -ENODEV;
+
+		printf("Saving Environment to %s... ", drv->name);
+		ret = drv->savevars();
+		if (ret)
+			printf("Failed (%d)\n", ret);
+		else
+			printf("OK\n");
+
+		if (!ret)
+			return 0;
+	}
+
+	return -ENODEV;
+}
+
 int env_init(void)
 {
 	struct env_driver *drv;

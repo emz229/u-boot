@@ -49,6 +49,54 @@ static void score_select_func(int pad, int func)
 	writel(reg, pconf0_addr);
 }
 
+char read_byte_from_flash(uint32_t dev) {
+	char byte = "\0";
+	uint32_t addr_reg = NULL;
+	addr_reg = 0xFFFFFFFF - dev;
+	byte = readb(addr_reg);
+	return byte;
+}
+
+int setup_internal_uart_auto() {
+	char byteval;
+	char *buffer = malloc(20*sizeof(char));
+	int bytes_copied = 0;
+	char *vendor_one = "somtype=adlink\0";
+	char *vendor_two = "somtype=advantech\0";
+
+	for (uint32_t j=SOMTYPE_VAR_OFFSET; j>(SOMTYPE_VAR_OFFSET - 0x14); j--) {
+		byteval = read_byte_from_flash(j);
+		if (byteval == 0x00) {
+			*(buffer + bytes_copied) = byteval;
+			bytes_copied++;
+			break;
+		}
+		else {
+			*(buffer + bytes_copied) = byteval;
+			bytes_copied++;
+		}
+	}
+
+	if (strcmp(buffer, vendor_one)==0) {
+		//Match of vendor_one!
+		setup_internal_uart(1);
+		goto done;
+	}
+	if (strcmp(buffer,vendor_two)==0) {
+		//Match of vendor_two!
+		setup_internal_uart(0);
+		goto done;
+	}
+	//Default to Advantech setup
+	setup_internal_uart(0);
+
+done:
+	free(buffer);
+	free(vendor_one);
+	free(vendor_two);
+	return 0;
+}
+
 static void x86_pci_write_config32(int dev, unsigned int where, u32 value)
 {
 	unsigned long addr;

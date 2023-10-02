@@ -127,7 +127,7 @@ static int smbus_block_read(u32 base, u8 dev, u8 *buffer,
 		return -ETIMEDOUT;
 	}
 
-	count = inb(base + SMBHSTDAT0);
+	count = len; //inb(base + SMBHSTDAT0);
 	debug("%s (%d): count=%d (len=%d)\n", __func__, __LINE__, count, len);
 	if (count == 0) {
 		debug("ERROR: len=0 on read\n");

@@ -465,6 +465,18 @@ static int initr_env(void)
 	return 0;
 }
 
+static int initr_env_vars(void) {
+		switch(gd->env_somvendor) {
+			case ENV_VENDOR_ADLINK:
+				env_set("somtype", "adlink");
+			break;
+			case ENV_VENDOR_ADVANTECH:
+				env_set("somtype", "advantech");
+			break;
+		}
+	return 0;
+}
+
 #ifdef CONFIG_SYS_BOOTPARAMS_LEN
 static int initr_malloc_bootparams(void)
 {
@@ -759,6 +771,7 @@ static init_fnc_t init_sequence_r[] = {
 	initr_mmc,
 #endif
 	initr_env,
+	initr_env_vars,
 #ifdef CONFIG_SYS_BOOTPARAMS_LEN
 	initr_malloc_bootparams,
 #endif

@@ -220,6 +220,28 @@ int env_export(env_t *env_out)
 	return 0;
 }
 
+/* Export the environment and generate CRC for it. */
+int env_export_vars(env_t *env_out, void *variables, int length)
+{
+	char *res;
+	ssize_t	len;
+
+	res = (char *)env_out->data;
+	len = hexport_r(&env_htab, '\0', H_MATCH_KEY | H_MATCH_IDENT, &res, ENV_SIZE, length, (char const *)variables);
+	if (len < 0) {
+		pr_err("Cannot export environment: errno = %d\n", errno);
+		return 1;
+	}
+
+	env_out->crc = crc32(0, env_out->data, ENV_SIZE);
+
+#ifdef CONFIG_SYS_REDUNDAND_ENVIRONMENT
+	env_out->flags = ++env_flags; /* increase the serial */
+#endif
+
+	return 0;
+}
+
 void env_relocate(void)
 {
 #if defined(CONFIG_NEEDS_MANUAL_RELOC)

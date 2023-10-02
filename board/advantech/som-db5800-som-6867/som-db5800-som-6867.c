@@ -122,11 +122,7 @@ void update_fsp_azalia_configs(const struct azalia_config **azalia)
 
 int board_early_init_f(void)
 {
-	/*
-	 * The FSP enables the BayTrail internal legacy UART (again).
-	 * Disable it again, so that the one on the EC can be used.
-	 */
-	setup_internal_uart(0);
+	setup_internal_uart_auto();
 
 	return 0;
 }

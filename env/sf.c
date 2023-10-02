@@ -259,6 +259,71 @@ static int env_sf_save(void)
 
 	return ret;
 }
+
+static int env_sf_savevars(void) {
+	//TODO: This function could be made to save specific variables
+	u32	saved_size, saved_offset, sector;
+	char	*saved_buffer = NULL;
+	int	ret = 1;
+	env_t	env_new;
+	char *variables_to_save[] = {
+		"somtype",
+		//Place additional Novatech variables here
+	};
+
+	ret = setup_flash_device();
+	if (ret)
+		return ret;
+
+	/* Is the sector larger than the env (i.e. embedded) */
+	if (CONFIG_ENV_SECT_SIZE > CONFIG_ENV_SIZE) {
+		saved_size = CONFIG_ENV_SECT_SIZE - CONFIG_ENV_SIZE;
+		saved_offset = CONFIG_ENV_OFFSET + CONFIG_ENV_SIZE;
+		saved_buffer = malloc(saved_size);
+		if (!saved_buffer)
+			goto done;
+
+		ret = spi_flash_read(env_flash, saved_offset,
+			saved_size, saved_buffer);
+		if (ret)
+			goto done;
+	}
+
+	ret = env_export_vars(&env_new, &variables_to_save, (sizeof(variables_to_save) / sizeof *(variables_to_save)) );
+	if (ret)
+		goto done;
+
+	sector = DIV_ROUND_UP(CONFIG_ENV_SIZE, CONFIG_ENV_SECT_SIZE);
+
+	puts("Erasing SPI flash...");
+	ret = spi_flash_erase(env_flash, CONFIG_ENV_OFFSET,
+		sector * CONFIG_ENV_SECT_SIZE);
+	if (ret)
+		goto done;
+
+	puts("Writing to SPI flash...");
+	ret = spi_flash_write(env_flash, CONFIG_ENV_OFFSET,
+		CONFIG_ENV_SIZE, &env_new);
+	if (ret)
+		goto done;
+
+	if (CONFIG_ENV_SECT_SIZE > CONFIG_ENV_SIZE) {
+		ret = spi_flash_write(env_flash, saved_offset,
+			saved_size, saved_buffer);
+		if (ret)
+			goto done;
+	}
+
+	ret = 0;
+	puts("done\n");
+
+ done:
+	if (saved_buffer)
+		free(saved_buffer);
+
+	return ret;
+}
+
 #endif /* CMD_SAVEENV */
 
 static int env_sf_load(void)
@@ -275,6 +340,39 @@ static int env_sf_load(void)
 	ret = setup_flash_device();
 	if (ret)
 		goto out;
+
+	char byteval;
+	char *buffer = malloc(20*sizeof(char));
+	int bytes_copied = 0;
+	char *vendor_one = "somtype=adlink\0";
+	char *vendor_two = "somtype=advantech\0";
+
+	for (uint32_t j=SOMTYPE_VAR_OFFSET; j>(SOMTYPE_VAR_OFFSET - 0x14); j--) {
+		byteval = read_byte_from_flash(j);
+		if (byteval == 0x00) {
+			*(buffer + bytes_copied) = byteval;
+			bytes_copied++;
+			break;
+		}
+		else {
+			*(buffer + bytes_copied) = byteval;
+			bytes_copied++;
+			}
+	}
+	if (strcmp(buffer, vendor_one)==0) {
+		//Match of vendor_one!
+		//Do NOT load as entire environment!
+		set_default_env(NULL, 0);
+		gd->env_somvendor = ENV_VENDOR_ADLINK;
+		goto out;
+	}
+	if (strcmp(buffer,vendor_two)==0) {
+			//Match of vendor_two!
+			//Do NOT load as entire environment!
+			set_default_env(NULL, 0);
+			gd->env_somvendor = ENV_VENDOR_ADVANTECH;
+			goto out;
+	}
 
 	ret = spi_flash_read(env_flash,
 		CONFIG_ENV_OFFSET, CONFIG_ENV_SIZE, buf);
@@ -320,6 +418,7 @@ U_BOOT_ENV_LOCATION(sf) = {
 	.load		= env_sf_load,
 #ifdef CMD_SAVEENV
 	.save		= env_save_ptr(env_sf_save),
+	.savevars	= env_save_ptr(env_sf_savevars),
 #endif
 #if defined(INITENV) && defined(CONFIG_ENV_ADDR)
 	.init		= env_sf_init,
